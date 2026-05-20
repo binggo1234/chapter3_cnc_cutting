@@ -35,6 +35,7 @@ from progress_log import (
     new_progress_event,
     prepare_progress_log,
 )
+from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
@@ -311,6 +312,29 @@ def select_board_ids(
     return tuple(board_id for board_id, _ in candidates[:boards_per_member])
 
 
+def count_planned_method_tasks(
+    archives: tuple[Path, ...],
+    *,
+    max_members_per_archive: int,
+    boards_per_member: int,
+    min_rectangles: int,
+    max_rectangles: int | None,
+    methods: tuple[str, ...],
+) -> int:
+    total = 0
+    for archive in archives:
+        members = sample_placement_members(archive, max_members_per_archive)
+        for member in members:
+            board_ids = select_board_ids(
+                board_counts_from_zip(archive, member),
+                boards_per_member=boards_per_member,
+                min_rectangles=min_rectangles,
+                max_rectangles=max_rectangles,
+            )
+            total += len(board_ids) * len(methods)
+    return total
+
+
 def build_planners(
     methods: tuple[str, ...],
     units,
@@ -487,6 +511,7 @@ def run_case(
     stability_args: argparse.Namespace,
     progress_output: Path | None = None,
     task_timeout_seconds: float = 0.0,
+    progress_bar: TerminalProgressBar | None = None,
 ) -> tuple[BatchRouteRow, ...]:
     return tuple(
         iter_case_rows(
@@ -497,6 +522,7 @@ def run_case(
             stability_args,
             progress_output=progress_output,
             task_timeout_seconds=task_timeout_seconds,
+            progress_bar=progress_bar,
         )
     )
 
@@ -510,6 +536,7 @@ def iter_case_rows(
     completed_keys: set[tuple[str, ...]] | None = None,
     progress_output: Path | None = None,
     task_timeout_seconds: float = 0.0,
+    progress_bar: TerminalProgressBar | None = None,
 ) -> Iterator[BatchRouteRow]:
     cfg = load_chapter2_config_from_zip(archive, placements_member=placements_member)
     tool = tool_config_from_chapter2_config(cfg)
@@ -559,6 +586,8 @@ def iter_case_rows(
                 f"    skip completed: board={board_id} method={spec.method} "
                 f"rectangles={len(layout.rectangles)} units={len(units)}"
             )
+            if progress_bar is not None:
+                progress_bar.advance("skipped", f"board={board_id} method={spec.method}")
             continue
         if progress_output is not None:
             append_progress_event(
@@ -614,6 +643,11 @@ def iter_case_rows(
                 f"    timed out: board={board_id} method={spec.method} "
                 f"elapsed={elapsed_ms:.3f} ms limit={task_timeout_seconds:g} s"
             )
+            if progress_bar is not None:
+                progress_bar.advance(
+                    "timed_out",
+                    f"board={board_id} method={spec.method}",
+                )
             continue
         if progress_output is not None:
             append_progress_event(
@@ -633,6 +667,8 @@ def iter_case_rows(
             f"    done: board={board_id} method={spec.method} "
             f"runtime={row.runtime_ms:.3f} ms"
         )
+        if progress_bar is not None:
+            progress_bar.advance("completed", f"board={board_id} method={spec.method}")
         yield row
 
 
@@ -899,6 +935,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip one method run if it exceeds this many seconds; 0 disables timeout.",
     )
     parser.add_argument(
+        "--no-progress-bar",
+        action="store_true",
+        help="Disable terminal progress bar output.",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Append to the output CSV and skip rows already present in it.",
@@ -915,6 +956,19 @@ def main() -> None:
     methods = tuple(args.methods)
     progress_output = args.progress_output or default_progress_log_path(args.output)
     args.progress_output = progress_output
+    planned_task_count = count_planned_method_tasks(
+        archives,
+        max_members_per_archive=args.max_members_per_archive,
+        boards_per_member=args.boards_per_member,
+        min_rectangles=args.min_rectangles,
+        max_rectangles=args.max_rectangles,
+        methods=methods,
+    )
+    progress_bar = TerminalProgressBar(
+        planned_task_count,
+        enabled=not args.no_progress_bar,
+    )
+    progress_bar.start("method tasks")
     existing_rows = load_existing_rows(args.output) if args.resume else ()
     completed_keys = {batch_key(row) for row in existing_rows}
     prepare_stream_output(args.output, resume=args.resume)
@@ -947,6 +1001,7 @@ def main() -> None:
                     completed_keys=completed_keys,
                     progress_output=progress_output,
                     task_timeout_seconds=args.task_timeout_seconds,
+                    progress_bar=progress_bar,
                 ):
                     append_rows((row,), args.output)
                     rows.append(row)
