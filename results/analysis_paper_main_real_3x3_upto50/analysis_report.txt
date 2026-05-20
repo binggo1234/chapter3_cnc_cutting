@@ -1,0 +1,15 @@
+Target method: process_aware_beam
+
+Method summary
+  greedy: n=27, cost_mean=3222.586554, machining_mean=13751.864332, stability_mean=2.925926, runtime_mean=5.251517
+  path_distance_local_search: n=27, cost_mean=3215.161144, machining_mean=13744.438922, stability_mean=2.925926, runtime_mean=173.988179
+  topology: n=27, cost_mean=3391.468216, machining_mean=13920.745994, stability_mean=3.740741, runtime_mean=10.301670
+  topology_process_aware: n=27, cost_mean=5971.695762, machining_mean=16500.973540, stability_mean=0.000000, runtime_mean=210.523824
+  process_aware_beam: n=27, cost_mean=5070.404928, machining_mean=15599.682706, stability_mean=0.000000, runtime_mean=436.288208
+  topology_local_search: n=27, cost_mean=4580.386774, machining_mean=15109.664552, stability_mean=3.074074, runtime_mean=162.214158
+  topology_local_search_process_aware: n=27, cost_mean=5965.111045, machining_mean=16494.388822, stability_mean=0.000000, runtime_mean=247.374184
+
+Paired comparison summary
+  vs greedy: cases=27, cost_reduction_mean=-54.457811%, machining_reduction_mean=-9.775628%, stability_reduction_mean=2.925926, tool_event_reduction_mean=-4.333333, runtime_ratio_mean=75.515851, process_win_rate=0.925926, process_sign_test_p=0.000006
+  vs path_distance_local_search: cases=27, cost_reduction_mean=-54.659698%, machining_reduction_mean=-9.810728%, stability_reduction_mean=2.925926, tool_event_reduction_mean=-4.629630, runtime_ratio_mean=1.868649, process_win_rate=0.925926, process_sign_test_p=0.000006
+  vs topology_process_aware: cases=27, cost_reduction_mean=18.080809%, machining_reduction_mean=6.289373%, stability_reduction_mean=0.000000, tool_event_reduction_mean=6.629630, runtime_ratio_mean=3.471340, process_win_rate=0.814815, process_sign_test_p=0.001514
