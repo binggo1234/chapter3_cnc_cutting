@@ -24,6 +24,7 @@ from cnc_cutting.optimizer import (
     plan_process_aware_beam_route,
     plan_topology_route,
 )
+from experiment_manifest import default_manifest_path, write_experiment_manifest
 from process_options import add_stability_model_args, build_process_model_from_args
 
 
@@ -457,6 +458,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "results" / "scalability_results.csv",
     )
+    parser.add_argument("--manifest-output", type=Path, default=None)
     add_stability_model_args(parser)
     return parser.parse_args()
 
@@ -479,7 +481,22 @@ def main() -> None:
             )
 
     write_rows(tuple(rows), args.output)
+    manifest_output = args.manifest_output or default_manifest_path(args.output)
+    write_experiment_manifest(
+        manifest_output,
+        experiment_name="synthetic_scalability",
+        args=args,
+        outputs=(args.output,),
+        root=ROOT,
+        extra={
+            "row_count": len(rows),
+            "methods": tuple(args.methods),
+            "sizes": tuple(args.sizes),
+            "scenario": args.scenario,
+        },
+    )
     print(f"wrote: {args.output}")
+    print(f"wrote: {manifest_output}")
     for row in rows:
         print(
             f"{row.scenario:<9} {row.size:>4} {row.method:<22} "

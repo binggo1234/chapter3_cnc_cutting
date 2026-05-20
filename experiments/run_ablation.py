@@ -30,6 +30,7 @@ from cnc_cutting.optimizer import (
     plan_process_aware_beam_route,
     plan_topology_route,
 )
+from experiment_manifest import default_manifest_path, write_experiment_manifest
 from process_options import add_stability_model_args, build_process_model_from_args
 
 
@@ -697,6 +698,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "results" / "ablation_summary.csv",
     )
+    parser.add_argument("--manifest-output", type=Path, default=None)
     add_stability_model_args(parser)
     return parser.parse_args()
 
@@ -731,8 +733,23 @@ def main() -> None:
     write_rows(result_rows, args.output)
     summary_rows = summarize_rows(result_rows)
     write_summary(summary_rows, args.summary_output)
+    manifest_output = args.manifest_output or default_manifest_path(args.output)
+    write_experiment_manifest(
+        manifest_output,
+        experiment_name="chapter3_ablation",
+        args=args,
+        archives=archives,
+        outputs=(args.output, args.summary_output),
+        root=ROOT,
+        extra={
+            "row_count": len(result_rows),
+            "summary_row_count": len(summary_rows),
+            "variants": variants,
+        },
+    )
     print(f"wrote: {args.output}")
     print(f"wrote: {args.summary_output}")
+    print(f"wrote: {manifest_output}")
     print_summary(result_rows)
 
 

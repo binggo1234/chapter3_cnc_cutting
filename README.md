@@ -127,6 +127,7 @@ PYTHONPATH=src python3 experiments/run_chapter2_batch.py
 该命令默认从每个 zip 抽取 2 个 `placements.csv`，每个文件选 1 张零件数量较多的板，输出 `results/chapter2_batch_routes.csv` 和 `results/chapter2_batch_summary.csv`。
 默认方法包含 `greedy`、`path_distance_local_search`、`topology`、`topology_process_aware`、`process_aware_beam`、`topology_local_search` 和 `topology_local_search_process_aware`。
 批量明细 CSV 会记录 `process_aware_beam` 的 beam 参数，并额外输出按零件数量区间聚合的 bin summary，便于做规模分层分析。
+`run_chapter2_batch.py`、`run_ablation.py` 和 `run_scalability.py` 会同步生成 `*_manifest.json`，记录命令行参数、Git commit、输入归档和输出文件元数据。若需要指定 manifest 路径，可使用 `--manifest-output`。
 
 基于真实数据批量结果生成论文图表：
 

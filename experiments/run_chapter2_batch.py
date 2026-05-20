@@ -28,6 +28,7 @@ from cnc_cutting.optimizer import (
     plan_local_search_route,
     plan_topology_route,
 )
+from experiment_manifest import default_manifest_path, write_experiment_manifest
 from process_options import add_stability_model_args, build_process_model_from_args
 
 
@@ -651,6 +652,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "results" / "chapter2_batch_bin_summary.csv",
     )
+    parser.add_argument("--manifest-output", type=Path, default=None)
     add_stability_model_args(parser)
     return parser.parse_args()
 
@@ -686,9 +688,25 @@ def main() -> None:
     write_summary(summary_rows, args.summary_output)
     bin_summary_rows = summarize_bin_rows(tuple(rows))
     write_bin_summary(bin_summary_rows, args.bin_summary_output)
+    manifest_output = args.manifest_output or default_manifest_path(args.output)
+    write_experiment_manifest(
+        manifest_output,
+        experiment_name="chapter2_real_layout_batch",
+        args=args,
+        archives=archives,
+        outputs=(args.output, args.summary_output, args.bin_summary_output),
+        root=ROOT,
+        extra={
+            "row_count": len(rows),
+            "summary_row_count": len(summary_rows),
+            "bin_summary_row_count": len(bin_summary_rows),
+            "methods": methods,
+        },
+    )
     print(f"wrote: {args.output}")
     print(f"wrote: {args.summary_output}")
     print(f"wrote: {args.bin_summary_output}")
+    print(f"wrote: {manifest_output}")
     print_method_summary(tuple(rows))
 
 
