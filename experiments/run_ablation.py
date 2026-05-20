@@ -31,6 +31,12 @@ from cnc_cutting.optimizer import (
     plan_topology_route,
 )
 from experiment_manifest import default_manifest_path, write_experiment_manifest
+from progress_log import (
+    append_progress_event,
+    default_progress_log_path,
+    new_progress_event,
+    prepare_progress_log,
+)
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
@@ -573,6 +579,7 @@ def run_case(
     board_id: str,
     variants: tuple[str, ...],
     args: argparse.Namespace,
+    progress_output: Path | None = None,
 ) -> tuple[AblationRow, ...]:
     return tuple(
         iter_case_rows(
@@ -581,6 +588,7 @@ def run_case(
             board_id,
             variants,
             args,
+            progress_output=progress_output,
         )
     )
 
@@ -592,6 +600,7 @@ def iter_case_rows(
     variants: tuple[str, ...],
     args: argparse.Namespace,
     completed_keys: set[tuple[str, ...]] | None = None,
+    progress_output: Path | None = None,
 ) -> Iterator[AblationRow]:
     cfg = load_chapter2_config_from_zip(archive, placements_member=placements_member)
     base_tool = tool_config_from_chapter2_config(cfg)
@@ -608,6 +617,12 @@ def iter_case_rows(
         max_collinear_gap=base_tool.min_channel_width,
     )
     for variant in variants:
+        spec = ablation_spec(variant)
+        candidate_unit_count = (
+            4 * len(layout.rectangles)
+            if spec.use_single_edge_units_only
+            else len(base_units)
+        )
         key = ablation_key_from_parts(
             archive.name,
             placements_member,
@@ -616,10 +631,43 @@ def iter_case_rows(
             args,
         )
         if completed_keys is not None and key in completed_keys:
-            print(f"    skip completed: board={board_id} variant={variant}")
+            if progress_output is not None:
+                append_progress_event(
+                    progress_output,
+                    new_progress_event(
+                        event="skipped",
+                        archive=archive.name,
+                        placements_member=placements_member,
+                        board_id=board_id,
+                        method=variant,
+                        rectangle_count=len(layout.rectangles),
+                        candidate_unit_count=candidate_unit_count,
+                        message="completed row already present in output CSV",
+                    ),
+                )
+            print(
+                f"    skip completed: board={board_id} variant={variant} "
+                f"rectangles={len(layout.rectangles)} units={candidate_unit_count}"
+            )
             continue
-        print(f"    run: board={board_id} variant={variant}")
-        yield run_variant(
+        if progress_output is not None:
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="started",
+                    archive=archive.name,
+                    placements_member=placements_member,
+                    board_id=board_id,
+                    method=variant,
+                    rectangle_count=len(layout.rectangles),
+                    candidate_unit_count=candidate_unit_count,
+                ),
+            )
+        print(
+            f"    run: board={board_id} variant={variant} "
+            f"rectangles={len(layout.rectangles)} units={candidate_unit_count}"
+        )
+        row = run_variant(
             archive,
             placements_member,
             board_id,
@@ -631,6 +679,25 @@ def iter_case_rows(
             args,
             variant,
         )
+        if progress_output is not None:
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="completed",
+                    archive=archive.name,
+                    placements_member=placements_member,
+                    board_id=board_id,
+                    method=variant,
+                    rectangle_count=row.rectangle_count,
+                    candidate_unit_count=row.candidate_unit_count,
+                    elapsed_ms=row.runtime_ms,
+                ),
+            )
+        print(
+            f"    done: board={board_id} variant={variant} "
+            f"runtime={row.runtime_ms:.3f} ms"
+        )
+        yield row
 
 
 def write_rows(rows: tuple[AblationRow, ...], output_path: Path) -> None:
@@ -861,6 +928,7 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results" / "ablation_summary.csv",
     )
     parser.add_argument("--manifest-output", type=Path, default=None)
+    parser.add_argument("--progress-output", type=Path, default=None)
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -876,9 +944,12 @@ def main() -> None:
     args = parse_args()
     archives = tuple(args.zip_paths) if args.zip_paths else DEFAULT_ARCHIVES
     variants = tuple(args.variants)
+    progress_output = args.progress_output or default_progress_log_path(args.output)
+    args.progress_output = progress_output
     existing_rows = load_existing_rows(args.output) if args.resume else ()
     completed_keys = {ablation_key(row) for row in existing_rows}
     prepare_stream_output(args.output, resume=args.resume)
+    prepare_progress_log(progress_output, resume=args.resume)
     rows: list[AblationRow] = list(existing_rows)
     if args.resume and existing_rows:
         print(f"resume: loaded {len(existing_rows)} existing rows from {args.output}")
@@ -905,6 +976,7 @@ def main() -> None:
                     variants,
                     args,
                     completed_keys=completed_keys,
+                    progress_output=progress_output,
                 ):
                     append_rows((row,), args.output)
                     rows.append(row)
@@ -922,7 +994,7 @@ def main() -> None:
         experiment_name="chapter3_ablation",
         args=args,
         archives=archives,
-        outputs=(args.output, args.summary_output),
+        outputs=(args.output, args.summary_output, progress_output),
         root=ROOT,
         extra={
             "row_count": len(result_rows),
@@ -932,6 +1004,7 @@ def main() -> None:
     )
     print(f"wrote: {args.output}")
     print(f"wrote: {args.summary_output}")
+    print(f"wrote: {progress_output}")
     print(f"wrote: {manifest_output}")
     print_summary(result_rows)
 
