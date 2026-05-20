@@ -5,11 +5,11 @@ import csv
 import io
 import zipfile
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from statistics import mean, pstdev
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Iterator
 
 from cnc_cutting.cutting_units import build_candidate_cutting_units
 from cnc_cutting.geometry import rectangle_edges
@@ -574,6 +574,25 @@ def run_case(
     variants: tuple[str, ...],
     args: argparse.Namespace,
 ) -> tuple[AblationRow, ...]:
+    return tuple(
+        iter_case_rows(
+            archive,
+            placements_member,
+            board_id,
+            variants,
+            args,
+        )
+    )
+
+
+def iter_case_rows(
+    archive: Path,
+    placements_member: str,
+    board_id: str,
+    variants: tuple[str, ...],
+    args: argparse.Namespace,
+    completed_keys: set[tuple[str, ...]] | None = None,
+) -> Iterator[AblationRow]:
     cfg = load_chapter2_config_from_zip(archive, placements_member=placements_member)
     base_tool = tool_config_from_chapter2_config(cfg)
     layout = load_chapter2_layouts_from_zip(
@@ -588,8 +607,19 @@ def run_case(
         base_tool,
         max_collinear_gap=base_tool.min_channel_width,
     )
-    return tuple(
-        run_variant(
+    for variant in variants:
+        key = ablation_key_from_parts(
+            archive.name,
+            placements_member,
+            board_id,
+            variant,
+            args,
+        )
+        if completed_keys is not None and key in completed_keys:
+            print(f"    skip completed: board={board_id} variant={variant}")
+            continue
+        print(f"    run: board={board_id} variant={variant}")
+        yield run_variant(
             archive,
             placements_member,
             board_id,
@@ -601,8 +631,6 @@ def run_case(
             args,
             variant,
         )
-        for variant in variants
-    )
 
 
 def write_rows(rows: tuple[AblationRow, ...], output_path: Path) -> None:
@@ -612,6 +640,135 @@ def write_rows(rows: tuple[AblationRow, ...], output_path: Path) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(asdict(row))
+
+
+def append_rows(rows: tuple[AblationRow, ...], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not output_path.exists() or output_path.stat().st_size == 0
+    with output_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(asdict(rows[0]).keys()))
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def prepare_stream_output(output_path: Path, resume: bool) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume:
+        output_path.write_text("", encoding="utf-8")
+
+
+def load_existing_rows(output_path: Path) -> tuple[AblationRow, ...]:
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return ()
+    with output_path.open(newline="", encoding="utf-8") as handle:
+        return tuple(ablation_row_from_dict(row) for row in csv.DictReader(handle))
+
+
+def ablation_row_from_dict(raw: dict[str, str]) -> AblationRow:
+    return AblationRow(
+        **{
+            field.name: coerce_ablation_value(field.name, raw.get(field.name, ""))
+            for field in fields(AblationRow)
+        }
+    )
+
+
+def coerce_ablation_value(name: str, value: str):
+    if value == "":
+        return None
+    if name in ABLATION_BOOL_FIELDS:
+        return value in {"True", "true", "1"}
+    if name in ABLATION_INT_FIELDS:
+        return int(value)
+    if name in ABLATION_FLOAT_FIELDS:
+        return float(value)
+    return value
+
+
+ABLATION_BOOL_FIELDS = {
+    "use_single_edge_units_only",
+    "disable_stability_guidance",
+    "disable_adjacency_guidance",
+    "disable_detour_operator",
+    "disable_safe_travel_modes",
+    "evaluate_with_planning_tool",
+}
+ABLATION_INT_FIELDS = {
+    "min_support_count",
+    "rectangle_count",
+    "candidate_unit_count",
+    "selected_unit_count",
+    "action_count",
+    "primitive_unit_count",
+    "relation_unit_count",
+    "selected_single_edge_count",
+    "selected_shared_edge_count",
+    "selected_near_shared_channel_count",
+    "selected_collinear_chain_count",
+    "pierce_count",
+    "lift_count",
+    "safe_lift_count",
+    "detour_count",
+    "planning_safe_lift_count",
+    "planning_detour_count",
+}
+ABLATION_FLOAT_FIELDS = {
+    "min_support_ratio",
+    "min_area_normalized_support",
+    "adjacency_support_weight",
+    "runtime_ms",
+    "air_move_distance",
+    "cutting_length",
+    "collision_penalty",
+    "boundary_penalty",
+    "hard_penalty",
+    "stability_penalty",
+    "safe_lift_distance",
+    "detour_distance",
+    "travel_mode_cost",
+    "machining_cost",
+    "planning_air_move_distance",
+    "planning_travel_mode_cost",
+    "planning_machining_cost",
+    "planning_hard_penalty",
+    "planning_stability_penalty",
+}
+
+
+def ablation_key(row: AblationRow) -> tuple[str, ...]:
+    return (
+        row.archive,
+        row.placements_member,
+        row.board_id,
+        row.variant,
+        row.support_policy,
+        str(row.min_support_count),
+        f"{row.min_support_ratio:.12g}",
+        f"{row.min_area_normalized_support:.12g}",
+        f"{row.adjacency_support_weight:.12g}",
+    )
+
+
+def ablation_key_from_parts(
+    archive_name: str,
+    placements_member: str,
+    board_id: str,
+    variant: str,
+    args: argparse.Namespace,
+) -> tuple[str, ...]:
+    return (
+        archive_name,
+        placements_member,
+        board_id,
+        variant,
+        args.support_policy,
+        str(args.min_support_count),
+        f"{args.min_support_ratio:.12g}",
+        f"{args.min_area_normalized_support:.12g}",
+        f"{args.adjacency_support_weight:.12g}",
+    )
 
 
 def summarize_rows(rows: tuple[AblationRow, ...]) -> tuple[AblationSummaryRow, ...]:
@@ -704,6 +861,11 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results" / "ablation_summary.csv",
     )
     parser.add_argument("--manifest-output", type=Path, default=None)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append to the output CSV and skip rows already present in it.",
+    )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
     args = parser.parse_args()
@@ -714,7 +876,12 @@ def main() -> None:
     args = parse_args()
     archives = tuple(args.zip_paths) if args.zip_paths else DEFAULT_ARCHIVES
     variants = tuple(args.variants)
-    rows: list[AblationRow] = []
+    existing_rows = load_existing_rows(args.output) if args.resume else ()
+    completed_keys = {ablation_key(row) for row in existing_rows}
+    prepare_stream_output(args.output, resume=args.resume)
+    rows: list[AblationRow] = list(existing_rows)
+    if args.resume and existing_rows:
+        print(f"resume: loaded {len(existing_rows)} existing rows from {args.output}")
 
     for archive in archives:
         members = sample_placement_members(archive, args.max_members_per_archive)
@@ -731,13 +898,22 @@ def main() -> None:
                 f"  member: {member} boards={','.join(board_ids) if board_ids else 'none'}"
             )
             for board_id in board_ids:
-                rows.extend(run_case(archive, member, board_id, variants, args))
+                for row in iter_case_rows(
+                    archive,
+                    member,
+                    board_id,
+                    variants,
+                    args,
+                    completed_keys=completed_keys,
+                ):
+                    append_rows((row,), args.output)
+                    rows.append(row)
+                    completed_keys.add(ablation_key(row))
 
     if not rows:
         raise ValueError("no ablation rows produced; relax filters or check archives")
 
     result_rows = tuple(rows)
-    write_rows(result_rows, args.output)
     summary_rows = summarize_rows(result_rows)
     write_summary(summary_rows, args.summary_output)
     manifest_output = args.manifest_output or default_manifest_path(args.output)

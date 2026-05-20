@@ -129,6 +129,7 @@ PYTHONPATH=src python3 experiments/run_chapter2_batch.py
 批量明细 CSV 会记录 `process_aware_beam` 的 beam 参数，并额外输出按零件数量区间聚合的 bin summary，便于做规模分层分析。
 `run_chapter2_batch.py`、`run_ablation.py` 和 `run_scalability.py` 会同步生成 `*_manifest.json`，记录命令行参数、Git commit、输入归档和输出文件元数据。若需要指定 manifest 路径，可使用 `--manifest-output`。
 论文主实验可使用 `--experiment-preset paper-main`，该 preset 默认启用 `all_edges` 支撑模型、`min_support_ratio=0.75` 和 `adjacency_support_weight=1`；显式传入的稳定性参数会覆盖 preset。
+`run_chapter2_batch.py` 和 `run_ablation.py` 会在每个方法/消融变体完成后立即追加写入明细 CSV。若长实验中途终止，可在原命令中加入 `--resume` 继续运行，脚本会读取已有明细行并跳过已完成的 `archive + placements_member + board_id + method/variant + stability 参数` 组合。
 
 基于真实数据批量结果生成论文图表：
 

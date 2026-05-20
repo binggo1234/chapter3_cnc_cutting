@@ -5,11 +5,11 @@ import csv
 import io
 import zipfile
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from statistics import mean, pstdev
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Iterator
 
 from cnc_cutting.cutting_units import build_candidate_cutting_units
 from cnc_cutting.io import (
@@ -479,6 +479,25 @@ def run_case(
     methods: tuple[str, ...],
     stability_args: argparse.Namespace,
 ) -> tuple[BatchRouteRow, ...]:
+    return tuple(
+        iter_case_rows(
+            archive,
+            placements_member,
+            board_id,
+            methods,
+            stability_args,
+        )
+    )
+
+
+def iter_case_rows(
+    archive: Path,
+    placements_member: str,
+    board_id: str,
+    methods: tuple[str, ...],
+    stability_args: argparse.Namespace,
+    completed_keys: set[tuple[str, ...]] | None = None,
+) -> Iterator[BatchRouteRow]:
     cfg = load_chapter2_config_from_zip(archive, placements_member=placements_member)
     tool = tool_config_from_chapter2_config(cfg)
     layout = load_chapter2_layouts_from_zip(
@@ -493,8 +512,26 @@ def run_case(
         tool,
         max_collinear_gap=tool.min_channel_width,
     )
-    return tuple(
-        run_plan(
+    for spec in build_planners(
+        methods,
+        units,
+        panel,
+        tool,
+        process_model,
+        len(layout.rectangles),
+    ):
+        key = batch_key_from_parts(
+            archive.name,
+            placements_member,
+            board_id,
+            spec.method,
+            stability_args,
+        )
+        if completed_keys is not None and key in completed_keys:
+            print(f"    skip completed: board={board_id} method={spec.method}")
+            continue
+        print(f"    run: board={board_id} method={spec.method}")
+        yield run_plan(
             archive,
             placements_member,
             board_id,
@@ -507,15 +544,6 @@ def run_case(
             layout,
             len(units),
         )
-        for spec in build_planners(
-            methods,
-            units,
-            panel,
-            tool,
-            process_model,
-            len(layout.rectangles),
-        )
-    )
 
 
 def write_rows(rows: tuple[BatchRouteRow, ...], output_path: Path) -> None:
@@ -525,6 +553,121 @@ def write_rows(rows: tuple[BatchRouteRow, ...], output_path: Path) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(asdict(row))
+
+
+def append_rows(rows: tuple[BatchRouteRow, ...], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not output_path.exists() or output_path.stat().st_size == 0
+    with output_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(asdict(rows[0]).keys()))
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def prepare_stream_output(output_path: Path, resume: bool) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume:
+        output_path.write_text("", encoding="utf-8")
+
+
+def load_existing_rows(output_path: Path) -> tuple[BatchRouteRow, ...]:
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return ()
+    with output_path.open(newline="", encoding="utf-8") as handle:
+        return tuple(batch_row_from_dict(row) for row in csv.DictReader(handle))
+
+
+def batch_row_from_dict(raw: dict[str, str]) -> BatchRouteRow:
+    return BatchRouteRow(
+        **{
+            field.name: coerce_batch_value(field.name, raw.get(field.name, ""))
+            for field in fields(BatchRouteRow)
+        }
+    )
+
+
+def coerce_batch_value(name: str, value: str):
+    if value == "":
+        return None
+    if name in BATCH_INT_FIELDS:
+        return int(value)
+    if name in BATCH_FLOAT_FIELDS:
+        return float(value)
+    return value
+
+
+BATCH_INT_FIELDS = {
+    "min_support_count",
+    "topology_candidate_pool_size",
+    "beam_width",
+    "beam_candidate_pool_size",
+    "beam_max_expansions_per_node",
+    "beam_max_layer_expansions",
+    "beam_diversity_bucket_limit",
+    "beam_min_expansions_per_parent",
+    "beam_unstable_min_expansions_per_parent",
+    "beam_unstable_layer_expansion_bonus",
+    "rectangle_count",
+    "candidate_unit_count",
+    "selected_unit_count",
+    "action_count",
+    "pierce_count",
+    "lift_count",
+    "safe_lift_count",
+    "detour_count",
+}
+BATCH_FLOAT_FIELDS = {
+    "min_support_ratio",
+    "min_area_normalized_support",
+    "adjacency_support_weight",
+    "beam_unstable_layer_expansion_multiplier",
+    "runtime_ms",
+    "air_move_distance",
+    "cutting_length",
+    "collision_penalty",
+    "boundary_penalty",
+    "stability_penalty",
+    "safe_lift_distance",
+    "detour_distance",
+    "travel_mode_cost",
+    "hard_penalty",
+}
+
+
+def batch_key(row: BatchRouteRow) -> tuple[str, ...]:
+    return (
+        row.archive,
+        row.placements_member,
+        row.board_id,
+        row.method,
+        row.support_policy,
+        str(row.min_support_count),
+        f"{row.min_support_ratio:.12g}",
+        f"{row.min_area_normalized_support:.12g}",
+        f"{row.adjacency_support_weight:.12g}",
+    )
+
+
+def batch_key_from_parts(
+    archive_name: str,
+    placements_member: str,
+    board_id: str,
+    method: str,
+    args: argparse.Namespace,
+) -> tuple[str, ...]:
+    return (
+        archive_name,
+        placements_member,
+        board_id,
+        method,
+        args.support_policy,
+        str(args.min_support_count),
+        f"{args.min_support_ratio:.12g}",
+        f"{args.min_area_normalized_support:.12g}",
+        f"{args.adjacency_support_weight:.12g}",
+    )
 
 
 def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ...]:
@@ -658,6 +801,11 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results" / "chapter2_batch_bin_summary.csv",
     )
     parser.add_argument("--manifest-output", type=Path, default=None)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append to the output CSV and skip rows already present in it.",
+    )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
     args = parser.parse_args()
@@ -668,7 +816,12 @@ def main() -> None:
     args = parse_args()
     archives = tuple(args.zip_paths) if args.zip_paths else DEFAULT_ARCHIVES
     methods = tuple(args.methods)
-    rows: list[BatchRouteRow] = []
+    existing_rows = load_existing_rows(args.output) if args.resume else ()
+    completed_keys = {batch_key(row) for row in existing_rows}
+    prepare_stream_output(args.output, resume=args.resume)
+    rows: list[BatchRouteRow] = list(existing_rows)
+    if args.resume and existing_rows:
+        print(f"resume: loaded {len(existing_rows)} existing rows from {args.output}")
 
     for archive in archives:
         members = sample_placement_members(archive, args.max_members_per_archive)
@@ -685,12 +838,21 @@ def main() -> None:
                 f"  member: {member} boards={','.join(board_ids) if board_ids else 'none'}"
             )
             for board_id in board_ids:
-                rows.extend(run_case(archive, member, board_id, methods, args))
+                for row in iter_case_rows(
+                    archive,
+                    member,
+                    board_id,
+                    methods,
+                    args,
+                    completed_keys=completed_keys,
+                ):
+                    append_rows((row,), args.output)
+                    rows.append(row)
+                    completed_keys.add(batch_key(row))
 
     if not rows:
         raise ValueError("no batch rows produced; relax filters or check archives")
 
-    write_rows(tuple(rows), args.output)
     summary_rows = summarize_rows(tuple(rows))
     write_summary(summary_rows, args.summary_output)
     bin_summary_rows = summarize_bin_rows(tuple(rows))
