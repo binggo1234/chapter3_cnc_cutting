@@ -1,0 +1,12 @@
+{
+  "panel_id": "demo_panel_001",
+  "panel_width": 2440,
+  "panel_height": 1220,
+  "rectangles": [
+    {"part_id": "P001", "x": 0, "y": 0, "width": 600, "height": 400},
+    {"part_id": "P002", "x": 620, "y": 0, "width": 500, "height": 300},
+    {"part_id": "P003", "x": 0, "y": 420, "width": 800, "height": 350},
+    {"part_id": "P004", "x": 820, "y": 420, "width": 450, "height": 450}
+  ]
+}
+

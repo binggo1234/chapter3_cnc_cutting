@@ -1,0 +1,9 @@
+method,support_policy,min_support_count,min_support_ratio,min_area_normalized_support,adjacency_support_weight,n,runtime_ms_mean,runtime_ms_std,air_move_distance_mean,air_move_distance_std,travel_mode_cost_mean,travel_mode_cost_std,hard_penalty_mean,stability_penalty_mean,stability_penalty_std,safe_lift_count_mean,detour_count_mean,rectangle_count_mean
+topology,all_edges,1,0.5,0.0,0.0,1,2.597540999999981,0.0,100.39164646293858,0.0,100.39164646293858,0.0,0.0,6.0,0.0,0,0,9
+topology,all_edges,1,0.5,0.0,1.0,1,2.454125000000029,0.0,100.39164646293858,0.0,100.39164646293858,0.0,0.0,0.0,0.0,0,0,9
+topology,all_edges,1,0.75,0.0,0.0,1,2.4497089999999666,0.0,100.39164646293858,0.0,100.39164646293858,0.0,0.0,15.0,0.0,0,0,9
+topology,all_edges,1,0.75,0.0,1.0,1,2.466917000000013,0.0,100.39164646293858,0.0,100.39164646293858,0.0,0.0,0.0,0.0,0,0,9
+topology_process_aware,all_edges,1,0.5,0.0,0.0,1,27.675958,0.0,77.60147050873545,0.0,77.60147050873545,0.0,0.0,0.0,0.0,0,8,9
+topology_process_aware,all_edges,1,0.5,0.0,1.0,1,46.08441699999999,0.0,50.16227766016837,0.0,50.16227766016837,0.0,0.0,0.0,0.0,0,12,9
+topology_process_aware,all_edges,1,0.75,0.0,0.0,1,17.862416000000046,0.0,105.88751310231714,0.0,105.88751310231714,0.0,0.0,1.0,0.0,0,11,9
+topology_process_aware,all_edges,1,0.75,0.0,1.0,1,27.682917000000028,0.0,54.56062529783655,0.0,54.56062529783655,0.0,0.0,0.0,0.0,0,12,9

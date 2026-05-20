@@ -1,0 +1,10 @@
+[project]
+name = "chapter3-cnc-cutting"
+version = "0.1.0"
+description = "CNC rectangular cutting path optimization experiments for thesis chapter 3"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

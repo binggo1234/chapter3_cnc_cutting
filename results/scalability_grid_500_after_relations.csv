@@ -1,0 +1,4 @@
+scenario,size,method,repeat,runtime_ms,rectangle_count,candidate_unit_count,selected_unit_count,action_count,air_move_distance,cutting_length,pierce_count,lift_count,stability_penalty,hard_penalty
+grid,500,greedy,0,999.0240000000001,500,2000,2000,2500,47204.940034757514,134643.8467059702,500,500,283.0,499.0
+grid,500,topology,0,2098.974,500,2000,2000,2500,52289.40859141649,134643.8467059703,500,500,366.0,499.0
+grid,500,topology_local_search,0,4084.684084,500,2000,2000,2502,52416.282511664496,134643.8467059703,502,502,365.0,499.0

@@ -1,0 +1,3 @@
+method,support_policy,min_support_count,min_support_ratio,min_area_normalized_support,safe_lift_fixed_cost,n,runtime_ms_mean,air_move_distance_mean,travel_mode_cost_mean,hard_penalty_mean,stability_penalty_mean,safe_lift_count_mean,safe_lift_distance_mean,detour_count_mean,detour_distance_mean
+topology_process_aware,all_edges,1,0.5,0.0,0.0,1,18.846584,71.80215297930911,71.80215297930911,0.0,9.0,1,13.038404810405298,0,0.0
+topology_process_aware,all_edges,1,0.5,0.0,100.0,1,37.73837499999999,70.76374816890382,70.76374816890382,0.0,9.0,0,0.0,7,21.0

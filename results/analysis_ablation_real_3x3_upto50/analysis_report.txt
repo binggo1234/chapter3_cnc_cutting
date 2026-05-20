@@ -1,0 +1,20 @@
+Target method: full_process_aware_beam
+
+Method summary
+  full_process_aware_beam: n=27, cost_mean=5070.404928, machining_mean=15599.682706, stability_mean=0.000000, runtime_mean=449.490187
+  no_adjacency_support_guidance: n=27, cost_mean=7271.324855, machining_mean=17800.602632, stability_mean=0.407407, runtime_mean=231.458744
+  no_detour_operator: n=27, cost_mean=5412.153985, machining_mean=15941.431763, stability_mean=0.000000, runtime_mean=90.147488
+  no_safe_travel_modes: n=27, cost_mean=4589.471963, machining_mean=15118.749740, stability_mean=0.000000, runtime_mean=89.215327
+  no_stability_guidance: n=27, cost_mean=3376.038135, machining_mean=13905.315912, stability_mean=4.111111, runtime_mean=552.441432
+  path_distance_baseline: n=27, cost_mean=3215.161144, machining_mean=13744.438922, stability_mean=2.925926, runtime_mean=178.713111
+  single_edges_only: n=27, cost_mean=4612.793092, machining_mean=21819.874574, stability_mean=0.000000, runtime_mean=748.589940
+  topology_no_beam: n=27, cost_mean=5971.695762, machining_mean=16500.973540, stability_mean=0.000000, runtime_mean=211.194977
+
+Paired comparison summary
+  vs no_adjacency_support_guidance: cases=27, cost_reduction_mean=20.744097%, machining_reduction_mean=11.178464%, stability_reduction_mean=0.407407, tool_event_reduction_mean=11.000000, runtime_ratio_mean=1.845427, process_win_rate=0.925926, process_sign_test_p=0.000006
+  vs no_detour_operator: cases=27, cost_reduction_mean=1.941000%, machining_reduction_mean=0.875566%, stability_reduction_mean=0.000000, tool_event_reduction_mean=1.333333, runtime_ratio_mean=3.714816, process_win_rate=0.407407, process_sign_test_p=0.442068
+  vs no_safe_travel_modes: cases=27, cost_reduction_mean=-9.016109%, machining_reduction_mean=-2.298537%, stability_reduction_mean=0.000000, tool_event_reduction_mean=-1.148148, runtime_ratio_mean=3.775924, process_win_rate=0.518519, process_sign_test_p=1.000000
+  vs no_stability_guidance: cases=27, cost_reduction_mean=-43.156549%, machining_reduction_mean=-7.930472%, stability_reduction_mean=4.111111, tool_event_reduction_mean=-6.333333, runtime_ratio_mean=0.884340, process_win_rate=0.814815, process_sign_test_p=0.001514
+  vs path_distance_baseline: cases=27, cost_reduction_mean=-54.659698%, machining_reduction_mean=-9.810728%, stability_reduction_mean=2.925926, tool_event_reduction_mean=-4.629630, runtime_ratio_mean=1.901016, process_win_rate=0.925926, process_sign_test_p=0.000006
+  vs single_edges_only: cases=27, cost_reduction_mean=-23.314262%, machining_reduction_mean=26.131726%, stability_reduction_mean=0.000000, tool_event_reduction_mean=-7.185185, runtime_ratio_mean=0.669660, process_win_rate=0.962963, process_sign_test_p=0.000000
+  vs topology_no_beam: cases=27, cost_reduction_mean=18.080809%, machining_reduction_mean=6.289373%, stability_reduction_mean=0.000000, tool_event_reduction_mean=6.629630, runtime_ratio_mean=3.655504, process_win_rate=0.814815, process_sign_test_p=0.001514

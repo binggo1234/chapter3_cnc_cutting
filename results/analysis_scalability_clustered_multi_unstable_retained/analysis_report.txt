@@ -1,0 +1,10 @@
+Target method: process_aware_beam
+
+Method summary
+  greedy: n=3, cost_mean=8981.276327, stability_mean=108.333333, runtime_mean=62.337417
+  topology_process_aware: n=3, cost_mean=19861.340462, stability_mean=0.000000, runtime_mean=2399.736528
+  process_aware_beam: n=3, cost_mean=15298.545020, stability_mean=0.000000, runtime_mean=2005.534792
+
+Paired comparison summary
+  vs greedy: cases=3, cost_reduction_mean=-69.357048%, stability_reduction_mean=108.333333, runtime_ratio_mean=35.209021, process_win_rate=1.000000, process_sign_test_p=0.250000
+  vs topology_process_aware: cases=3, cost_reduction_mean=27.478617%, stability_reduction_mean=0.000000, runtime_ratio_mean=1.092874, process_win_rate=1.000000, process_sign_test_p=0.250000

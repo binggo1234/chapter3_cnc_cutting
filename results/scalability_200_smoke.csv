@@ -1,0 +1,4 @@
+size,method,repeat,runtime_ms,rectangle_count,candidate_unit_count,selected_unit_count,action_count,air_move_distance,cutting_length,pierce_count,lift_count,stability_penalty,hard_penalty
+200,greedy,0,267.6507500000001,200,800,800,1000,20536.022925327597,54229.669164320585,200,200,131.0,199.0
+200,topology,0,1859.803833,200,800,800,1000,20816.254263461902,54229.66916432057,200,200,152.0,199.0
+200,topology_local_search,0,3591.5348329999997,200,800,800,1002,20965.46950790173,54229.66916432057,202,202,151.0,199.0

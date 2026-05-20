@@ -1,0 +1,2 @@
+beam_width,candidate_pool_size,max_expansions_per_node,max_layer_expansions,layer_multiplier,unstable_layer_expansion_multiplier,unstable_layer_expansion_bonus,diversity_bucket_limit,min_expansions_per_parent,unstable_min_expansions_per_parent,n,runtime_ms_mean,runtime_ms_std,expanded_nodes_mean,air_move_distance_mean,travel_mode_cost_mean,hard_penalty_mean,stability_penalty_mean,safe_lift_count_mean,detour_count_mean,rectangle_count_mean
+6,24,48,42,7,1.0,0,1,0,2,1,394.11595800000003,0.0,2164,7756.0862941799505,7756.0862941799505,0.0,0.0,0,14,22

@@ -1,0 +1,3 @@
+method,support_policy,min_support_count,min_support_ratio,min_area_normalized_support,adjacency_support_weight,n,runtime_ms_mean,runtime_ms_std,air_move_distance_mean,air_move_distance_std,travel_mode_cost_mean,travel_mode_cost_std,hard_penalty_mean,stability_penalty_mean,safe_lift_count_mean,detour_count_mean,rectangle_count_mean
+process_aware_beam,all_edges,1,0.75,0.0,1.0,1,1248.5263750000001,0.0,9487.932688012961,0.0,9487.932688012961,0.0,0.0,0.0,0,31,22
+topology_process_aware,all_edges,1,0.75,0.0,1.0,1,180.99954200000013,0.0,12803.007600346884,0.0,13053.007600346884,0.0,0.0,0.0,1,17,22
