@@ -31,7 +31,12 @@ from cnc_cutting.optimizer import (
     plan_topology_route,
 )
 from experiment_manifest import default_manifest_path, write_experiment_manifest
-from process_options import add_stability_model_args, build_process_model_from_args
+from process_options import (
+    add_experiment_preset_arg,
+    add_stability_model_args,
+    apply_experiment_preset,
+    build_process_model_from_args,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -699,8 +704,10 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results" / "ablation_summary.csv",
     )
     parser.add_argument("--manifest-output", type=Path, default=None)
+    add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
-    return parser.parse_args()
+    args = parser.parse_args()
+    return apply_experiment_preset(args)
 
 
 def main() -> None:
