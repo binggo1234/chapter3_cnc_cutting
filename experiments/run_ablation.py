@@ -43,6 +43,7 @@ from process_options import (
     apply_experiment_preset,
     build_process_model_from_args,
 )
+from task_timeout import TaskTimeoutError, task_timeout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -580,6 +581,7 @@ def run_case(
     variants: tuple[str, ...],
     args: argparse.Namespace,
     progress_output: Path | None = None,
+    task_timeout_seconds: float = 0.0,
 ) -> tuple[AblationRow, ...]:
     return tuple(
         iter_case_rows(
@@ -589,6 +591,7 @@ def run_case(
             variants,
             args,
             progress_output=progress_output,
+            task_timeout_seconds=task_timeout_seconds,
         )
     )
 
@@ -601,6 +604,7 @@ def iter_case_rows(
     args: argparse.Namespace,
     completed_keys: set[tuple[str, ...]] | None = None,
     progress_output: Path | None = None,
+    task_timeout_seconds: float = 0.0,
 ) -> Iterator[AblationRow]:
     cfg = load_chapter2_config_from_zip(archive, placements_member=placements_member)
     base_tool = tool_config_from_chapter2_config(cfg)
@@ -667,18 +671,43 @@ def iter_case_rows(
             f"    run: board={board_id} variant={variant} "
             f"rectangles={len(layout.rectangles)} units={candidate_unit_count}"
         )
-        row = run_variant(
-            archive,
-            placements_member,
-            board_id,
-            layout,
-            base_units,
-            panel,
-            base_tool,
-            evaluation_process_model,
-            args,
-            variant,
-        )
+        task_start = perf_counter()
+        try:
+            with task_timeout(task_timeout_seconds):
+                row = run_variant(
+                    archive,
+                    placements_member,
+                    board_id,
+                    layout,
+                    base_units,
+                    panel,
+                    base_tool,
+                    evaluation_process_model,
+                    args,
+                    variant,
+                )
+        except TaskTimeoutError:
+            elapsed_ms = (perf_counter() - task_start) * 1000.0
+            if progress_output is not None:
+                append_progress_event(
+                    progress_output,
+                    new_progress_event(
+                        event="timed_out",
+                        archive=archive.name,
+                        placements_member=placements_member,
+                        board_id=board_id,
+                        method=variant,
+                        rectangle_count=len(layout.rectangles),
+                        candidate_unit_count=candidate_unit_count,
+                        elapsed_ms=elapsed_ms,
+                        message=f"timeout after {task_timeout_seconds:g} seconds",
+                    ),
+                )
+            print(
+                f"    timed out: board={board_id} variant={variant} "
+                f"elapsed={elapsed_ms:.3f} ms limit={task_timeout_seconds:g} s"
+            )
+            continue
         if progress_output is not None:
             append_progress_event(
                 progress_output,
@@ -930,6 +959,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest-output", type=Path, default=None)
     parser.add_argument("--progress-output", type=Path, default=None)
     parser.add_argument(
+        "--task-timeout-seconds",
+        type=float,
+        default=0.0,
+        help="Skip one variant run if it exceeds this many seconds; 0 disables timeout.",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Append to the output CSV and skip rows already present in it.",
@@ -977,6 +1012,7 @@ def main() -> None:
                     args,
                     completed_keys=completed_keys,
                     progress_output=progress_output,
+                    task_timeout_seconds=args.task_timeout_seconds,
                 ):
                     append_rows((row,), args.output)
                     rows.append(row)
