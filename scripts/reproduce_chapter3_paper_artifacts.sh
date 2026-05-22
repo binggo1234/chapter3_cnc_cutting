@@ -78,7 +78,9 @@ if [[ "$MODE" == "full" ]]; then
     --task-timeout-seconds 120 \
 	    --output results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50.csv \
 	    --summary-output results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_summary.csv \
-	    --figure-dir figures/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50
+	    --figure-dir figures/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50 \
+	    --progress-output results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_progress.csv \
+    --resume
 
   python3 experiments/run_scalability.py \
     --experiment-preset paper-main \

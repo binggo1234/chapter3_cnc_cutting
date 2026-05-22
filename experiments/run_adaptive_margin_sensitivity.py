@@ -3,11 +3,18 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import os
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass, fields
 from pathlib import Path
 from statistics import mean, pstdev
 from time import perf_counter
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    str(Path(tempfile.gettempdir()) / "cnc_cutting_matplotlib"),
+)
 
 import matplotlib
 
@@ -26,6 +33,13 @@ from cnc_cutting.models import Layout, Panel
 from cnc_cutting.optimizer import RoutePlan, plan_topology_route
 from cnc_cutting.optimizer import select_coverage_units, wider_beam_search_config
 from cnc_cutting.travel import clear_detour_cache
+from progress_log import (
+    append_progress_event,
+    default_progress_log_path,
+    new_progress_event,
+    prepare_progress_log,
+)
+from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
@@ -443,6 +457,129 @@ def write_rows(path: Path, rows: list) -> None:
             writer.writerow({field: getattr(row, field) for field in fieldnames})
 
 
+def append_rows(path: Path, rows: list) -> None:
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [field.name for field in fields(rows[0])]
+    write_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({field: getattr(row, field) for field in fieldnames})
+
+
+def prepare_stream_output(path: Path, resume: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume:
+        path.write_text("", encoding="utf-8")
+
+
+def load_existing_rows(path: Path) -> list[MarginRow]:
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+    with path.open(newline="", encoding="utf-8") as handle:
+        return [margin_row_from_dict(row) for row in csv.DictReader(handle)]
+
+
+def margin_row_from_dict(raw: dict[str, str]) -> MarginRow:
+    return MarginRow(
+        **{
+            field.name: coerce_margin_value(field.name, raw.get(field.name, ""))
+            for field in fields(MarginRow)
+        }
+    )
+
+
+def coerce_margin_value(name: str, value: str):
+    if value == "":
+        return None
+    if name in MARGIN_BOOL_FIELDS:
+        return value in {"True", "true", "1"}
+    if name in MARGIN_INT_FIELDS:
+        return int(value)
+    if name in MARGIN_FLOAT_FIELDS:
+        return float(value)
+    return value
+
+
+MARGIN_BOOL_FIELDS = {"fallback_triggered"}
+MARGIN_INT_FIELDS = {
+    "rectangle_count",
+    "candidate_unit_count",
+    "selected_unit_count",
+    "action_count",
+    "pierce_count",
+    "lift_count",
+    "safe_lift_count",
+    "detour_count",
+}
+MARGIN_FLOAT_FIELDS = {
+    "fallback_margin",
+    "estimated_runtime_ms",
+    "topology_runtime_ms",
+    "default_beam_runtime_ms",
+    "default_polish_runtime_ms",
+    "fallback_beam_runtime_ms",
+    "fallback_polish_runtime_ms",
+    "air_move_distance",
+    "cutting_length",
+    "travel_mode_cost",
+    "hard_penalty",
+    "stability_penalty",
+}
+
+
+def margin_key(row: MarginRow) -> tuple[str, ...]:
+    return margin_key_from_parts(
+        row.archive,
+        row.placements_member,
+        row.board_id,
+        row.variant,
+        row.fallback_margin,
+    )
+
+
+def margin_key_from_parts(
+    archive_name: str,
+    placements_member: str,
+    board_id: str,
+    variant: str,
+    margin: float,
+) -> tuple[str, ...]:
+    return (
+        archive_name,
+        placements_member,
+        board_id,
+        variant,
+        f"{margin:.12g}",
+    )
+
+
+def case_completed(
+    completed_keys: set[tuple[str, ...]],
+    archive: Path,
+    placements_member: str,
+    board_id: str,
+    variants: tuple[str, ...],
+    margins: tuple[float, ...],
+) -> bool:
+    return all(
+        margin_key_from_parts(
+            archive.name,
+            placements_member,
+            board_id,
+            variant,
+            margin,
+        )
+        in completed_keys
+        for variant in variants
+        for margin in margins
+    )
+
+
 def plot_summary(rows: list[MarginSummaryRow], output_dir: Path) -> None:
     if not rows:
         return
@@ -539,6 +676,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "figures" / "adaptive_margin_sensitivity_real_20_50",
     )
+    parser.add_argument("--progress-output", type=Path, default=None)
+    parser.add_argument(
+        "--no-progress-bar",
+        action="store_true",
+        help="Disable terminal progress bar output.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append to the output CSV and skip rows already present in it.",
+    )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
     return parser.parse_args()
@@ -549,13 +697,61 @@ def main() -> None:
     args.zip_paths = tuple(args.zip_paths) if args.zip_paths else DEFAULT_ARCHIVES
     args.margins = tuple(sorted(set(args.margins)))
     args.variants = tuple(args.variants)
+    progress_output = args.progress_output or default_progress_log_path(args.output)
+    args.progress_output = progress_output
 
-    rows: list[MarginRow] = []
+    cases = tuple(iter_cases(args))
+    progress_bar = TerminalProgressBar(
+        len(cases),
+        enabled=not args.no_progress_bar,
+    )
+    progress_bar.start("adaptive margin cases")
+    rows: list[MarginRow] = load_existing_rows(args.output) if args.resume else []
+    completed_keys = {margin_key(row) for row in rows}
+    prepare_stream_output(args.output, resume=args.resume)
+    prepare_progress_log(progress_output, resume=args.resume)
+    if args.resume and rows:
+        print(f"resume: loaded {len(rows)} existing rows from {args.output}")
+
     case_count = 0
     timeout_count = 0
-    for archive, member, board_id in iter_cases(args):
+    skipped_case_count = 0
+    for archive, member, board_id in cases:
         case_count += 1
+        if case_completed(
+            completed_keys,
+            archive,
+            member,
+            board_id,
+            args.variants,
+            args.margins,
+        ):
+            skipped_case_count += 1
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="skipped",
+                    archive=archive.name,
+                    placements_member=member,
+                    board_id=board_id,
+                    method="adaptive_margin_candidates",
+                    message="all margin rows already present in output CSV",
+                ),
+            )
+            print(f"    skip completed candidates: board={board_id}")
+            progress_bar.advance("skipped", f"board={board_id}")
+            continue
         print(f"    run candidates: board={board_id}")
+        append_progress_event(
+            progress_output,
+            new_progress_event(
+                event="started",
+                archive=archive.name,
+                placements_member=member,
+                board_id=board_id,
+                method="adaptive_margin_candidates",
+            ),
+        )
         try:
             with task_timeout(args.task_timeout_seconds):
                 layout, candidates, candidate_count = build_case_candidates(
@@ -566,36 +762,77 @@ def main() -> None:
                 )
         except TaskTimeoutError:
             timeout_count += 1
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="timed_out",
+                    archive=archive.name,
+                    placements_member=member,
+                    board_id=board_id,
+                    method="adaptive_margin_candidates",
+                    message=f"timeout after {args.task_timeout_seconds:g} seconds",
+                ),
+            )
             print(
                 f"    timed out: board={board_id} "
                 f"after {args.task_timeout_seconds:.1f}s"
             )
+            progress_bar.advance("timed_out", f"board={board_id}")
             continue
+        new_rows: list[MarginRow] = []
         for variant in args.variants:
             for margin in args.margins:
-                rows.append(
-                    row_from_selection(
-                        archive,
-                        member,
-                        board_id,
-                        variant,
-                        margin,
-                        layout,
-                        candidate_count,
-                        candidates,
-                    )
+                key = margin_key_from_parts(
+                    archive.name,
+                    member,
+                    board_id,
+                    variant,
+                    margin,
                 )
-        print(
-            f"    done candidates: board={board_id} rows={len(args.variants) * len(args.margins)}"
+                if key in completed_keys:
+                    continue
+                row = row_from_selection(
+                    archive,
+                    member,
+                    board_id,
+                    variant,
+                    margin,
+                    layout,
+                    candidate_count,
+                    candidates,
+                )
+                rows.append(row)
+                new_rows.append(row)
+                completed_keys.add(key)
+        append_rows(args.output, new_rows)
+        append_progress_event(
+            progress_output,
+            new_progress_event(
+                event="completed",
+                archive=archive.name,
+                placements_member=member,
+                board_id=board_id,
+                method="adaptive_margin_candidates",
+                rectangle_count=len(layout.rectangles),
+                candidate_unit_count=candidate_count,
+                message=f"appended {len(new_rows)} margin rows",
+            ),
         )
+        print(
+            f"    done candidates: board={board_id} rows={len(new_rows)}"
+        )
+        progress_bar.advance("completed", f"board={board_id}")
 
     summary = summarize(rows)
-    write_rows(args.output, rows)
     write_rows(args.summary_output, summary)
     plot_summary(summary, args.figure_dir)
-    print(f"cases={case_count} timed_out={timeout_count} rows={len(rows)}")
+    print(
+        f"cases={case_count} skipped={skipped_case_count} "
+        f"timed_out={timeout_count} rows={len(rows)}"
+    )
     print(f"wrote: {args.output}")
     print(f"wrote: {args.summary_output}")
+    print(f"wrote: {progress_output}")
     print(f"figures: {args.figure_dir}")
     for row in summary:
         print(
