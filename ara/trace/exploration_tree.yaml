@@ -1,0 +1,110 @@
+tree:
+  - id: N01
+    type: question
+    title: "Finalize Chapter 3 CNC cutting main algorithm"
+    provenance: user
+    timestamp: "2026-05-22T18:46+08:00"
+    description: >
+      Determine whether the event-gated adaptive beam plus local-search method should be
+      the thesis Chapter 3 main algorithm and what code work remains before calling the
+      implementation complete.
+    children:
+      - id: N02
+        type: decision
+        title: "Freeze Event-gated Adaptive beam+LS as main algorithm"
+        provenance: user
+        timestamp: "2026-05-22T18:46+08:00"
+        choice: >
+          Use `process_aware_beam_adaptive_polished` as the main code path and describe it
+          as Event-gated Adaptive beam+LS in the thesis.
+        alternatives:
+          - "Fixed-threshold acceptance without protected beam"
+          - "Ungated adaptive beam+LS portfolio"
+          - "Strict hard ban on extra tool events"
+        evidence: >
+          The user accepted the protected event-gate framing because it sacrifices some
+          path benefit while gaining stronger process reasonableness and a not-worse-than-beam
+          fallback property.
+        children:
+          - id: N03
+            type: experiment
+            title: "Analyze tool-event increases"
+            provenance: ai-executed
+            timestamp: "2026-05-22T18:46+08:00"
+            result: >
+              The protected event-gated method has 11 decrease, 60 tie, and 6 increase
+              cases relative to `process_aware_beam`. The increase cases are concentrated
+              in repeated board 149 and board 340 layouts and are accompanied by large
+              travel or detour reductions.
+            evidence:
+              - "results/paper_artifacts/table_tool_event_gate_summary.csv"
+              - "results/paper_artifacts/table_tool_event_increase_cases.csv"
+              - "docs/event_gate_tool_event_case_analysis.md"
+            children:
+              - id: N04
+                type: experiment
+                title: "Run tool-event gate sensitivity"
+                provenance: ai-executed
+                timestamp: "2026-05-22T18:46+08:00"
+                result: >
+                  no_gate gives 4/44/29 decrease/tie/increase with 5.55% travel reduction;
+                  fixed_100 gives 4/53/20 with 5.01%; current gives 11/60/6 with 3.61%;
+                  strict gives 11/62/4 with 3.22%. The current gate is a balanced default.
+                evidence:
+                  - "results/paper_artifacts/table_tool_event_gate_sensitivity.csv"
+                  - "figures/paper_artifacts/fig_tool_event_gate_sensitivity.pdf"
+                children:
+                  - id: N05
+                    type: experiment
+                    title: "Add current-gate decision explanation table"
+                    provenance: ai-executed
+                    timestamp: "2026-05-22T18:46+08:00"
+                    result: >
+                      Added a candidate-level decision table that records selected candidates,
+                      rejected candidates, gate reasons, extra tool events, required travel
+                      saving, achieved saving, and detour counts. The compact paper artifact
+                      table has 167 data rows.
+                    evidence:
+                      - "results/tool_event_gate_current_decisions_real_20_50.csv"
+                      - "results/paper_artifacts/table_tool_event_gate_decisions.csv"
+                  - id: N06
+                    type: experiment
+                    title: "Verify code and paper artifacts"
+                    provenance: ai-executed
+                    timestamp: "2026-05-22T18:46+08:00"
+                    result: >
+                      `python3 -m pytest` passed with 124 tests. `scripts/reproduce_chapter3_paper_artifacts.sh artifacts`
+                      regenerated tool-event analysis, board 340 route comparison, paper tables,
+                      and figures successfully.
+                    evidence:
+                      - "results/paper_artifacts/paper_artifact_index.md"
+                      - "figures/paper_artifacts/fig_event_gate_board340_route_comparison.png"
+                  - id: N07
+                    type: experiment
+                    title: "Add statistical robustness table"
+                    provenance: ai-executed
+                    timestamp: "2026-05-22T18:46+08:00"
+                    result: >
+                      Added a paired robustness table with mean/std/median summaries,
+                      win/tie/loss counts, exact sign-test p-values, effect sizes, and
+                      bootstrap 95% confidence intervals. On 77 real boards, travel-cost
+                      reduction confidence intervals remained positive against topology,
+                      multi-start process local search, and ordinary process-aware beam.
+                    evidence:
+                      - "results/paper_artifacts/table_statistical_robustness.csv"
+                      - "docs/statistical_robustness_summary.md"
+                  - id: N08
+                    type: decision
+                    title: "Use industrial planning-level validation wording"
+                    provenance: ai-suggested
+                    timestamp: "2026-05-22T18:46+08:00"
+                    choice: >
+                      Present the current evidence as industrial planning-level validation,
+                      not as commercial CAM or physical machine validation.
+                    alternatives:
+                      - "Claim commercial CAM-level validation without commercial routes"
+                      - "Wait for physical cutting trials before writing experiments"
+                    evidence: >
+                      The current dataset uses real nesting layouts and process-aware route
+                      diagnostics, but no commercial CAM output or physical cutting trial
+                      measurements are available.

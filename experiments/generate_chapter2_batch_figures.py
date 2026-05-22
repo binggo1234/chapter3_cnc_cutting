@@ -34,7 +34,7 @@ METHOD_LABELS = {
     "process_aware_beam": "Process-aware beam",
     "process_aware_beam_adaptive": "Adaptive beam",
     "process_aware_beam_polished": "Beam+process LS",
-    "process_aware_beam_adaptive_polished": "Adaptive beam+LS",
+    "process_aware_beam_adaptive_polished": "Event-gated adaptive beam+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
 }
 METHOD_COLORS = {

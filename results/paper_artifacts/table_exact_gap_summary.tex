@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Small-scale optimality gap against exact dynamic programming.}
+\label{tab:exact-gap-summary}
+\begin{tabular}{lrrrrrrr}
+\toprule
+method & n & travel mode cost & gap & gap ratio & runtime ms & hard penalty & stability penalty \\
+\midrule
+Process-aware topology & 7 & 1270.3 & 475.5 & 0.740 & 2.3 & 0.00 & 0.00 \\
+Multi-start process LS & 7 & 881.1 & 86.3 & 0.148 & 58.7 & 0.00 & 0.00 \\
+Process-aware beam & 7 & 1275.1 & 480.3 & 0.869 & 10.2 & 0.00 & 0.00 \\
+Adaptive beam & 7 & 1028.4 & 233.6 & 0.329 & 24.7 & 0.00 & 0.00 \\
+Beam+process LS & 7 & 1010.3 & 215.5 & 0.581 & 26.8 & 0.00 & 0.00 \\
+Event-gated adaptive beam+LS & 7 & 927.6 & 132.9 & 0.177 & 57.4 & 0.00 & 0.00 \\
+Exact DP & 7 & 794.8 & 0.0 & 0.000 & 530.4 & 0.00 & 0.00 \\
+\bottomrule
+\end{tabular}
+\end{table}

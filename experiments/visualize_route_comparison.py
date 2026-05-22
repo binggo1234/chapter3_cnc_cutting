@@ -43,6 +43,7 @@ from cnc_cutting.optimizer import (
     plan_topology_route,
 )
 from process_options import add_stability_model_args, build_process_model_from_args
+from process_options import add_tool_event_gate_args, build_tool_event_gate_from_args
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +70,7 @@ METHOD_LABELS = {
     "process_aware_beam": "Process-aware beam",
     "process_aware_beam_adaptive": "Adaptive beam",
     "process_aware_beam_polished": "Beam+process LS",
-    "process_aware_beam_adaptive_polished": "Adaptive beam+LS",
+    "process_aware_beam_adaptive_polished": "Event-gated adaptive beam+LS",
     "topology_local_search": "Topology+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
     "full_process_aware_beam": "Full",
@@ -212,6 +213,7 @@ def build_plan(
     panel: Panel,
     tool,
     process_model,
+    tool_event_gate,
     size: int,
 ) -> RoutePlan:
     if method == "greedy":
@@ -265,6 +267,7 @@ def build_plan(
             beam_config=compact_beam_search_config(size),
             topology_candidate_pool_size=topology_pool_size(size),
             process_model=process_model,
+            tool_event_gate=tool_event_gate,
         )
     if method == "process_aware_beam_polished":
         return plan_process_aware_beam_polished_route(
@@ -284,6 +287,7 @@ def build_plan(
             polish_config=compact_local_search_config(size, True),
             topology_candidate_pool_size=topology_pool_size(size),
             process_model=process_model,
+            tool_event_gate=tool_event_gate,
         )
     if method == "topology_local_search":
         return plan_local_search_route(
@@ -310,10 +314,11 @@ def run_method(
     panel: Panel,
     tool,
     process_model,
+    tool_event_gate,
     size: int,
 ) -> RouteRun:
     start = perf_counter()
-    plan = build_plan(method, units, panel, tool, process_model, size)
+    plan = build_plan(method, units, panel, tool, process_model, tool_event_gate, size)
     runtime_ms = (perf_counter() - start) * 1000.0
     diagnostics = diagnose_actions(plan.actions, panel, tool, process_model=process_model)
     return RouteRun(
@@ -634,6 +639,7 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "figures" / "route_comparison.png",
     )
     add_stability_model_args(parser)
+    add_tool_event_gate_args(parser)
     return parser.parse_args()
 
 
@@ -653,6 +659,7 @@ def main() -> None:
     )[0]
     panel = Panel(layout.panel_id, layout.panel_width, layout.panel_height)
     process_model = build_process_model_from_args(layout, args)
+    tool_event_gate = build_tool_event_gate_from_args(args)
     units = build_candidate_cutting_units(
         layout,
         tool,
@@ -660,7 +667,15 @@ def main() -> None:
     )
 
     runs = tuple(
-        run_method(method, units, panel, tool, process_model, len(layout.rectangles))
+        run_method(
+            method,
+            units,
+            panel,
+            tool,
+            process_model,
+            tool_event_gate,
+            len(layout.rectangles),
+        )
         for method in args.methods
     )
     metrics_rows = tuple(

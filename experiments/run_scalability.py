@@ -40,8 +40,10 @@ from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
+    add_tool_event_gate_args,
     apply_experiment_preset,
     build_process_model_from_args,
+    build_tool_event_gate_from_args,
 )
 from task_timeout import TaskTimeoutError, task_timeout
 
@@ -355,6 +357,7 @@ def iter_size_rows(
     layout = generate_layout_for_scenario(scenario, size, tool, seed=seed + repeat)
     panel = Panel(layout.panel_id, layout.panel_width, layout.panel_height)
     process_model = build_process_model_from_args(layout, stability_args)
+    tool_event_gate = build_tool_event_gate_from_args(stability_args)
     units = build_candidate_cutting_units(
         layout,
         tool,
@@ -463,6 +466,7 @@ def iter_size_rows(
                 topology_candidate_pool_size=topology_pool_size,
                 fallback_margin=1000.0,
                 process_model=process_model,
+                tool_event_gate=tool_event_gate,
             ),
             topology_candidate_pool_size=topology_pool_size,
             beam_width=beam_config.beam_width,
@@ -527,6 +531,7 @@ def iter_size_rows(
                 topology_candidate_pool_size=topology_pool_size,
                 fallback_margin=1000.0,
                 process_model=process_model,
+                tool_event_gate=tool_event_gate,
             ),
             topology_candidate_pool_size=topology_pool_size,
             beam_width=beam_config.beam_width,
@@ -897,6 +902,7 @@ def parse_args() -> argparse.Namespace:
     )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
+    add_tool_event_gate_args(parser)
     args = parser.parse_args()
     return apply_experiment_preset(args)
 

@@ -1,0 +1,9 @@
+sessions:
+  - id: "2026-05-22_001"
+    date: "2026-05-22"
+    title: "Finalize event-gated Chapter 3 algorithm code"
+    summary: >
+      Froze Event-gated Adaptive beam+LS as the thesis main algorithm, added tool-event
+      gate sensitivity and decision explanation artifacts, refreshed paper artifact
+      generation, and verified all tests.
+    path: "ara/trace/sessions/2026-05-22_001.yaml"

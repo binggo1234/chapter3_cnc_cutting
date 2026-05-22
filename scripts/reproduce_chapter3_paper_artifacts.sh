@@ -16,26 +16,41 @@ if [[ "$MODE" == "full" ]]; then
     --methods path_distance_local_search topology_process_aware process_local_search_multistart process_aware_beam process_aware_beam_adaptive process_aware_beam_polished process_aware_beam_adaptive_polished \
     --experiment-preset paper-main \
     --task-timeout-seconds 120 \
-	    --output results/paper_main_margin1000_after_detour_intgraph_real_20_50.csv \
-	    --summary-output results/paper_main_margin1000_after_detour_intgraph_real_20_50_summary.csv \
-	    --bin-summary-output results/paper_main_margin1000_after_detour_intgraph_real_20_50_bin_summary.csv \
-	    --progress-output results/paper_main_margin1000_after_detour_intgraph_real_20_50_progress.csv \
+	    --output results/adaptive_event_gate_protected_real_20x3_20_50.csv \
+	    --summary-output results/adaptive_event_gate_protected_real_20x3_20_50_summary.csv \
+	    --bin-summary-output results/adaptive_event_gate_protected_real_20x3_20_50_bin_summary.csv \
+	    --progress-output results/adaptive_event_gate_protected_real_20x3_20_50_progress.csv \
     --resume
 
   python3 experiments/analyze_results.py \
-	    --input results/paper_main_margin1000_after_detour_intgraph_real_20_50.csv \
+	    --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
 	    --target-method process_aware_beam_adaptive_polished \
-	    --baseline-methods path_distance_local_search topology_process_aware process_local_search_multistart process_aware_beam process_aware_beam_adaptive process_aware_beam_polished \
-	    --output-dir results/analysis_paper_main_margin1000_after_detour_intgraph_real_20_50 \
-	    --figures-dir figures/analysis_paper_main_margin1000_after_detour_intgraph_real_20_50
+	    --baseline-methods topology_process_aware process_local_search_multistart process_aware_beam \
+	    --output-dir results/analysis_adaptive_event_gate_protected_real_20x3_20_50 \
+	    --figures-dir figures/analysis_adaptive_event_gate_protected_real_20x3_20_50
 
 	  python3 experiments/analyze_portfolio_selection.py \
-	    --input results/paper_main_margin1000_after_detour_intgraph_real_20_50.csv \
+	    --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
 	    --target-method process_aware_beam_adaptive_polished \
-	    --component-methods process_aware_beam_polished process_aware_beam_adaptive process_aware_beam topology_process_aware \
-	    --unmatched-label fallback_wide_beam_polished \
-	    --output results/adaptive_polished_selection_attribution_margin1000_after_detour_intgraph.csv \
-	    --summary-output results/adaptive_polished_selection_attribution_margin1000_after_detour_intgraph_summary.csv
+	    --component-methods process_aware_beam topology_process_aware process_local_search_multistart \
+	    --unmatched-label event_gate_selected_candidate \
+	    --output results/adaptive_event_gate_protected_selection.csv \
+	    --summary-output results/adaptive_event_gate_protected_selection_summary.csv
+
+  python3 experiments/analyze_tool_event_cases.py \
+    --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
+    --baseline-method process_aware_beam \
+    --target-method process_aware_beam_adaptive_polished \
+    --summary-output results/adaptive_event_gate_protected_tool_event_summary.csv \
+    --increase-output results/adaptive_event_gate_protected_tool_event_increase_cases.csv \
+    --markdown-output docs/event_gate_tool_event_case_analysis.md
+
+  python3 experiments/analyze_statistical_robustness.py \
+    --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
+    --target-method process_aware_beam_adaptive_polished \
+    --baseline-methods topology_process_aware process_local_search_multistart process_aware_beam \
+    --output results/statistical_robustness_real_20_50.csv \
+    --markdown-output docs/statistical_robustness_summary.md
 
   python3 experiments/run_ablation.py \
     --max-members-per-archive 20 \
@@ -80,6 +95,22 @@ if [[ "$MODE" == "full" ]]; then
 	    --summary-output results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_summary.csv \
 	    --figure-dir figures/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50 \
 	    --progress-output results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_progress.csv \
+    --resume
+
+  python3 experiments/run_tool_event_gate_sensitivity.py \
+    --experiment-preset paper-main \
+    --max-members-per-archive 20 \
+    --boards-per-member 3 \
+    --min-rectangles 20 \
+    --max-rectangles 50 \
+    --strategies no_gate fixed_100 current strict \
+    --task-timeout-seconds 120 \
+    --output results/tool_event_gate_sensitivity_real_20_50.csv \
+    --summary-output results/tool_event_gate_sensitivity_real_20_50_summary.csv \
+    --increase-output results/tool_event_gate_sensitivity_real_20_50_increase_cases.csv \
+    --decision-output results/tool_event_gate_current_decisions_real_20_50.csv \
+    --figure-dir figures/tool_event_gate_sensitivity_real_20_50 \
+    --progress-output results/tool_event_gate_sensitivity_real_20_50_progress.csv \
     --resume
 
   python3 experiments/run_scalability.py \
@@ -134,6 +165,34 @@ elif [[ "$MODE" != "artifacts" ]]; then
   echo "Usage: $0 [artifacts|full]" >&2
   exit 2
 fi
+
+python3 experiments/analyze_tool_event_cases.py \
+  --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
+  --baseline-method process_aware_beam \
+  --target-method process_aware_beam_adaptive_polished \
+  --summary-output results/adaptive_event_gate_protected_tool_event_summary.csv \
+  --increase-output results/adaptive_event_gate_protected_tool_event_increase_cases.csv \
+  --markdown-output docs/event_gate_tool_event_case_analysis.md
+
+python3 experiments/analyze_statistical_robustness.py \
+  --input results/adaptive_event_gate_protected_real_20x3_20_50.csv \
+  --target-method process_aware_beam_adaptive_polished \
+  --baseline-methods topology_process_aware process_local_search_multistart process_aware_beam \
+  --output results/statistical_robustness_real_20_50.csv \
+  --markdown-output docs/statistical_robustness_summary.md
+
+python3 experiments/visualize_route_comparison.py \
+  --zip-path /Users/binggo/Desktop/codex_handoff_20260502/data/review_overnight_20260422.zip \
+  --placements-member 'review_overnight_20260422\review_t1_ind_a_5seed_300s\review_t1_ind_a_5seed_300s__data1\rh_mcts_prefix_beam\seed_1000\placements.csv' \
+  --board-id 340 \
+  --methods topology_process_aware process_aware_beam process_aware_beam_adaptive_polished \
+  --support-policy all_edges \
+  --min-support-ratio 0.75 \
+  --adjacency-support-weight 1 \
+  --label-parts \
+  --metrics-output results/paper_artifacts/event_gate_board340_route_metrics.csv \
+  --diagnostics-dir results/paper_artifacts/event_gate_board340_diagnostics \
+  --figure-output figures/paper_artifacts/fig_event_gate_board340_route_comparison.png
 
 python3 experiments/generate_paper_artifacts.py
 python3 -m compileall -q src experiments tests

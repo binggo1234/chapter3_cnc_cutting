@@ -13,6 +13,7 @@ from cnc_cutting.models import (
 )
 from cnc_cutting.optimizer import (
     RoutePlan,
+    ToolEventGateConfig,
     _best_process_route,
     greedy_unit_actions,
     plan_exact_process_dp_route,
@@ -113,6 +114,73 @@ def test_best_process_route_rejects_extra_tool_events_below_relative_gain() -> N
     )
 
     assert _best_process_route((incumbent, lower_travel_more_events)) is incumbent
+
+
+def test_best_process_route_can_disable_tool_event_gate() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=10000,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=9500,
+            pierce_count=2,
+            lift_count=3,
+        ),
+    )
+
+    assert (
+        _best_process_route(
+            (incumbent, lower_travel_more_events),
+            tool_event_gate=ToolEventGateConfig(enabled=False),
+        )
+        is lower_travel_more_events
+    )
+
+
+def test_best_process_route_uses_configured_tool_event_gate_threshold() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=400,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=150,
+            pierce_count=2,
+            lift_count=2,
+        ),
+    )
+
+    assert (
+        _best_process_route(
+            (incumbent, lower_travel_more_events),
+            tool_event_gate=ToolEventGateConfig(
+                min_travel_saving_per_extra_event=200.0,
+                min_travel_saving_ratio_per_extra_event=0.0,
+            ),
+        )
+        is incumbent
+    )
 
 
 def test_best_process_route_keeps_protected_plan_even_below_relative_gain() -> None:

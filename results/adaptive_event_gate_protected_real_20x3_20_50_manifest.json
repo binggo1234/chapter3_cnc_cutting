@@ -1,0 +1,132 @@
+{
+  "arguments": {
+    "adjacency_support_weight": 1.0,
+    "bin_summary_output": "results/adaptive_event_gate_protected_real_20x3_20_50_bin_summary.csv",
+    "boards_per_member": 3,
+    "experiment_preset": "paper-main",
+    "manifest_output": null,
+    "max_members_per_archive": 20,
+    "max_rectangles": 50,
+    "methods": [
+      "topology_process_aware",
+      "process_local_search_multistart",
+      "process_aware_beam",
+      "process_aware_beam_adaptive_polished"
+    ],
+    "min_area_normalized_support": 0.0,
+    "min_rectangles": 20,
+    "min_support_count": 1,
+    "min_support_ratio": 0.75,
+    "no_progress_bar": false,
+    "output": "results/adaptive_event_gate_protected_real_20x3_20_50.csv",
+    "progress_output": "results/adaptive_event_gate_protected_real_20x3_20_50_progress.csv",
+    "resume": true,
+    "summary_output": "results/adaptive_event_gate_protected_real_20x3_20_50_summary.csv",
+    "support_policy": "all_edges",
+    "task_timeout_seconds": 120.0,
+    "zip_paths": null
+  },
+  "command": [
+    "experiments/run_chapter2_batch.py",
+    "--max-members-per-archive",
+    "20",
+    "--boards-per-member",
+    "3",
+    "--min-rectangles",
+    "20",
+    "--max-rectangles",
+    "50",
+    "--methods",
+    "topology_process_aware",
+    "process_local_search_multistart",
+    "process_aware_beam",
+    "process_aware_beam_adaptive_polished",
+    "--experiment-preset",
+    "paper-main",
+    "--task-timeout-seconds",
+    "120",
+    "--output",
+    "results/adaptive_event_gate_protected_real_20x3_20_50.csv",
+    "--summary-output",
+    "results/adaptive_event_gate_protected_real_20x3_20_50_summary.csv",
+    "--bin-summary-output",
+    "results/adaptive_event_gate_protected_real_20x3_20_50_bin_summary.csv",
+    "--progress-output",
+    "results/adaptive_event_gate_protected_real_20x3_20_50_progress.csv",
+    "--resume"
+  ],
+  "created_at_utc": "2026-05-22T04:46:07.411544+00:00",
+  "experiment_name": "chapter2_real_layout_batch",
+  "extra": {
+    "bin_summary_row_count": 8,
+    "methods": [
+      "topology_process_aware",
+      "process_local_search_multistart",
+      "process_aware_beam",
+      "process_aware_beam_adaptive_polished"
+    ],
+    "row_count": 308,
+    "summary_row_count": 4
+  },
+  "inputs": {
+    "archives": [
+      {
+        "absolute_path": "/Users/binggo/Desktop/codex_handoff_20260502/data/paper_extended_suite_20260321_continuous_run_only_20260324_0001.zip",
+        "exists": true,
+        "path": "/Users/binggo/Desktop/codex_handoff_20260502/data/paper_extended_suite_20260321_continuous_run_only_20260324_0001.zip",
+        "size_bytes": 20994819
+      },
+      {
+        "absolute_path": "/Users/binggo/Desktop/codex_handoff_20260502/data/review_overnight_20260422.zip",
+        "exists": true,
+        "path": "/Users/binggo/Desktop/codex_handoff_20260502/data/review_overnight_20260422.zip",
+        "size_bytes": 11131459
+      },
+      {
+        "absolute_path": "/Users/binggo/Desktop/codex_handoff_20260502/data/strong_baseline_overnight_20260407_001243.zip",
+        "exists": true,
+        "path": "/Users/binggo/Desktop/codex_handoff_20260502/data/strong_baseline_overnight_20260407_001243.zip",
+        "size_bytes": 28131588
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "absolute_path": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting/results/adaptive_event_gate_protected_real_20x3_20_50.csv",
+      "exists": true,
+      "path": "results/adaptive_event_gate_protected_real_20x3_20_50.csv",
+      "size_bytes": 138439
+    },
+    {
+      "absolute_path": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting/results/adaptive_event_gate_protected_real_20x3_20_50_summary.csv",
+      "exists": true,
+      "path": "results/adaptive_event_gate_protected_real_20x3_20_50_summary.csv",
+      "size_bytes": 1263
+    },
+    {
+      "absolute_path": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting/results/adaptive_event_gate_protected_real_20x3_20_50_bin_summary.csv",
+      "exists": true,
+      "path": "results/adaptive_event_gate_protected_real_20x3_20_50_bin_summary.csv",
+      "size_bytes": 2019
+    },
+    {
+      "absolute_path": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting/results/adaptive_event_gate_protected_real_20x3_20_50_progress.csv",
+      "exists": true,
+      "path": "results/adaptive_event_gate_protected_real_20x3_20_50_progress.csv",
+      "size_bytes": 161764
+    }
+  ],
+  "python": {
+    "executable": "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "version": "3.9.6 (default, Apr  7 2026, 02:38:40) \n[Clang 21.0.0 (clang-2100.0.123.102)]"
+  },
+  "repository": {
+    "branch": "main",
+    "commit": "3b3c389c08e484e07af1422a3059cacbca9989fd",
+    "dirty": true,
+    "remote_origin": "https://github.com/binggo1234/chapter3_cnc_cutting.git",
+    "root": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting"
+  },
+  "working_directory": "/Users/binggo/Desktop/graduate/chapter3_cnc_cutting"
+}

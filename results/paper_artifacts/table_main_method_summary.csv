@@ -1,0 +1,5 @@
+method,n,machining_cost,travel_mode_cost,hard_penalty,stability_penalty,safe_lift,runtime_ms
+Process-aware topology,77,30764.1,10943.7,0.00,0.00,1.17,125.5
+Multi-start process LS,77,30743.2,10922.8,0.00,0.00,1.12,269.0
+Process-aware beam,77,30245.3,10424.9,0.00,0.00,0.78,347.9
+Event-gated adaptive beam+LS,77,29816.0,9995.7,0.00,0.00,0.88,568.6

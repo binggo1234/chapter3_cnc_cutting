@@ -145,7 +145,7 @@ PYTHONPATH=src python3 experiments/generate_chapter2_batch_figures.py
 PYTHONPATH=src:experiments python3 experiments/analyze_results.py --input results/chapter2_batch_expanded_3x3_upto50_multi_unstable_retained.csv --output-dir results/analysis_multi_unstable_retained --figures-dir figures/analysis_multi_unstable_retained
 ```
 
-该脚本会输出 `method_summary.csv`、`paired_comparison.csv`、`paired_summary.csv` 和 `analysis_report.txt`。可通过 `--target-method process_aware_beam_adaptive_polished` 将质量优先的 adaptive beam+LS portfolio 作为目标方法。
+该脚本会输出 `method_summary.csv`、`paired_comparison.csv`、`paired_summary.csv` 和 `analysis_report.txt`。可通过 `--target-method process_aware_beam_adaptive_polished` 将 Event-gated Adaptive beam+LS 作为目标方法。
 
 对同一真实板件生成多方法路线对照图：
 

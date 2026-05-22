@@ -21,6 +21,7 @@ from cnc_cutting.io import (
 from cnc_cutting.local_search import BeamSearchConfig, LocalSearchConfig
 from cnc_cutting.models import Layout, Panel
 from cnc_cutting.optimizer import (
+    DEFAULT_TOOL_EVENT_GATE_CONFIG,
     RoutePlan,
     plan_greedy_route,
     plan_path_distance_local_search_route,
@@ -44,8 +45,10 @@ from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
+    add_tool_event_gate_args,
     apply_experiment_preset,
     build_process_model_from_args,
+    build_tool_event_gate_from_args,
 )
 from task_timeout import TaskTimeoutError, task_timeout
 
@@ -90,6 +93,10 @@ class BatchRouteRow:
     min_support_ratio: float
     min_area_normalized_support: float
     adjacency_support_weight: float
+    tool_event_gate_enabled: bool
+    tool_event_min_travel_saving: float
+    tool_event_min_travel_saving_ratio: float
+    tool_event_min_machining_saving: float
     method: str
     topology_candidate_pool_size: int | None
     beam_width: int | None
@@ -130,6 +137,10 @@ class BatchSummaryRow:
     min_support_ratio: float
     min_area_normalized_support: float
     adjacency_support_weight: float
+    tool_event_gate_enabled: bool
+    tool_event_min_travel_saving: float
+    tool_event_min_travel_saving_ratio: float
+    tool_event_min_machining_saving: float
     n: int
     runtime_ms_mean: float
     runtime_ms_std: float
@@ -153,6 +164,10 @@ class BatchBinSummaryRow:
     min_support_ratio: float
     min_area_normalized_support: float
     adjacency_support_weight: float
+    tool_event_gate_enabled: bool
+    tool_event_min_travel_saving: float
+    tool_event_min_travel_saving_ratio: float
+    tool_event_min_machining_saving: float
     n: int
     runtime_ms_mean: float
     runtime_ms_std: float
@@ -350,6 +365,7 @@ def build_planners(
     panel: Panel,
     tool,
     process_model,
+    tool_event_gate,
     size: int,
 ) -> tuple[PlannerSpec, ...]:
     pool_size = topology_pool_size(size)
@@ -445,6 +461,7 @@ def build_planners(
                 topology_candidate_pool_size=pool_size,
                 fallback_margin=1000.0,
                 process_model=process_model,
+                tool_event_gate=tool_event_gate,
             ),
             topology_candidate_pool_size=pool_size,
             beam_width=beam_config.beam_width,
@@ -475,6 +492,7 @@ def build_planners(
                 topology_candidate_pool_size=pool_size,
                 fallback_margin=1000.0,
                 process_model=process_model,
+                tool_event_gate=tool_event_gate,
             ),
             topology_candidate_pool_size=pool_size,
             beam_width=beam_config.beam_width,
@@ -552,6 +570,10 @@ def run_plan(
     min_support_ratio: float,
     min_area_normalized_support: float,
     adjacency_support_weight: float,
+    tool_event_gate_enabled: bool,
+    tool_event_min_travel_saving: float,
+    tool_event_min_travel_saving_ratio: float,
+    tool_event_min_machining_saving: float,
     spec: PlannerSpec,
     layout: Layout,
     candidate_unit_count: int,
@@ -572,6 +594,10 @@ def run_plan(
         min_support_ratio=min_support_ratio,
         min_area_normalized_support=min_area_normalized_support,
         adjacency_support_weight=adjacency_support_weight,
+        tool_event_gate_enabled=tool_event_gate_enabled,
+        tool_event_min_travel_saving=tool_event_min_travel_saving,
+        tool_event_min_travel_saving_ratio=tool_event_min_travel_saving_ratio,
+        tool_event_min_machining_saving=tool_event_min_machining_saving,
         method=spec.method,
         topology_candidate_pool_size=spec.topology_candidate_pool_size,
         beam_width=spec.beam_width,
@@ -653,6 +679,7 @@ def iter_case_rows(
     )[0]
     panel = Panel(layout.panel_id, layout.panel_width, layout.panel_height)
     process_model = build_process_model_from_args(layout, stability_args)
+    tool_event_gate = build_tool_event_gate_from_args(stability_args)
     units = build_candidate_cutting_units(
         layout,
         tool,
@@ -664,6 +691,7 @@ def iter_case_rows(
         panel,
         tool,
         process_model,
+        tool_event_gate,
         len(layout.rectangles),
     ):
         key = batch_key_from_parts(
@@ -724,6 +752,10 @@ def iter_case_rows(
                     stability_args.min_support_ratio,
                     stability_args.min_area_normalized_support,
                     stability_args.adjacency_support_weight,
+                    tool_event_gate.enabled,
+                    tool_event_gate.min_travel_saving_per_extra_event,
+                    tool_event_gate.min_travel_saving_ratio_per_extra_event,
+                    tool_event_gate.min_machining_saving,
                     spec,
                     layout,
                     len(units),
@@ -822,7 +854,20 @@ def batch_row_from_dict(raw: dict[str, str]) -> BatchRouteRow:
 
 def coerce_batch_value(name: str, value: str):
     if value == "":
+        if name == "tool_event_gate_enabled":
+            return DEFAULT_TOOL_EVENT_GATE_CONFIG.enabled
+        if name == "tool_event_min_travel_saving":
+            return DEFAULT_TOOL_EVENT_GATE_CONFIG.min_travel_saving_per_extra_event
+        if name == "tool_event_min_travel_saving_ratio":
+            return (
+                DEFAULT_TOOL_EVENT_GATE_CONFIG
+                .min_travel_saving_ratio_per_extra_event
+            )
+        if name == "tool_event_min_machining_saving":
+            return DEFAULT_TOOL_EVENT_GATE_CONFIG.min_machining_saving
         return None
+    if name == "tool_event_gate_enabled":
+        return value == "True"
     if name in BATCH_INT_FIELDS:
         return int(value)
     if name in BATCH_FLOAT_FIELDS:
@@ -854,6 +899,9 @@ BATCH_FLOAT_FIELDS = {
     "min_support_ratio",
     "min_area_normalized_support",
     "adjacency_support_weight",
+    "tool_event_min_travel_saving",
+    "tool_event_min_travel_saving_ratio",
+    "tool_event_min_machining_saving",
     "beam_unstable_layer_expansion_multiplier",
     "runtime_ms",
     "air_move_distance",
@@ -879,6 +927,10 @@ def batch_key(row: BatchRouteRow) -> tuple[str, ...]:
         f"{row.min_support_ratio:.12g}",
         f"{row.min_area_normalized_support:.12g}",
         f"{row.adjacency_support_weight:.12g}",
+        str(row.tool_event_gate_enabled),
+        f"{row.tool_event_min_travel_saving:.12g}",
+        f"{row.tool_event_min_travel_saving_ratio:.12g}",
+        f"{row.tool_event_min_machining_saving:.12g}",
     )
 
 
@@ -899,6 +951,10 @@ def batch_key_from_parts(
         f"{args.min_support_ratio:.12g}",
         f"{args.min_area_normalized_support:.12g}",
         f"{args.adjacency_support_weight:.12g}",
+        str(not getattr(args, "disable_tool_event_gate", False)),
+        f"{args.tool_event_min_travel_saving:.12g}",
+        f"{args.tool_event_min_travel_saving_ratio:.12g}",
+        f"{args.tool_event_min_machining_saving:.12g}",
     )
 
 
@@ -921,6 +977,14 @@ def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ..
                 min_support_ratio=items[0].min_support_ratio,
                 min_area_normalized_support=items[0].min_area_normalized_support,
                 adjacency_support_weight=items[0].adjacency_support_weight,
+                tool_event_gate_enabled=items[0].tool_event_gate_enabled,
+                tool_event_min_travel_saving=items[0].tool_event_min_travel_saving,
+                tool_event_min_travel_saving_ratio=(
+                    items[0].tool_event_min_travel_saving_ratio
+                ),
+                tool_event_min_machining_saving=(
+                    items[0].tool_event_min_machining_saving
+                ),
                 n=len(items),
                 runtime_ms_mean=mean(runtime_values),
                 runtime_ms_std=pstdev(runtime_values),
@@ -958,6 +1022,14 @@ def summarize_bin_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchBinSummary
                 min_support_ratio=items[0].min_support_ratio,
                 min_area_normalized_support=items[0].min_area_normalized_support,
                 adjacency_support_weight=items[0].adjacency_support_weight,
+                tool_event_gate_enabled=items[0].tool_event_gate_enabled,
+                tool_event_min_travel_saving=items[0].tool_event_min_travel_saving,
+                tool_event_min_travel_saving_ratio=(
+                    items[0].tool_event_min_travel_saving_ratio
+                ),
+                tool_event_min_machining_saving=(
+                    items[0].tool_event_min_machining_saving
+                ),
                 n=len(items),
                 runtime_ms_mean=mean(runtime_values),
                 runtime_ms_std=pstdev(runtime_values),
@@ -1052,6 +1124,7 @@ def parse_args() -> argparse.Namespace:
     )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
+    add_tool_event_gate_args(parser)
     args = parser.parse_args()
     return apply_experiment_preset(args)
 

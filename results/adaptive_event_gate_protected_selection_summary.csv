@@ -1,0 +1,4 @@
+target_method,source_label,n,share_pct,travel_mode_cost_mean,machining_cost_mean,runtime_ms_mean,rectangle_count_mean
+process_aware_beam_adaptive_polished,process_aware_beam,51,66.23376623376623,10051.243026677654,0.0,515.3149754901967,26.352941176470587
+process_aware_beam_adaptive_polished,event_gate_selected_candidate,23,29.87012987012987,10100.84266042375,0.0,696.7679926521729,24.652173913043477
+process_aware_beam_adaptive_polished,topology_process_aware,3,3.896103896103896,8244.663894306123,0.0,493.07531933333445,21

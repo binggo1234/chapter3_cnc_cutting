@@ -29,8 +29,10 @@ from cnc_cutting.optimizer import (
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
+    add_tool_event_gate_args,
     apply_experiment_preset,
     build_process_model_from_args,
+    build_tool_event_gate_from_args,
 )
 from run_chapter2_batch import (
     DEFAULT_ARCHIVES,
@@ -116,6 +118,7 @@ def build_nonexact_plan(
     panel: Panel,
     tool,
     process_model,
+    tool_event_gate,
     size: int,
 ) -> RoutePlan:
     if method == "process_aware_beam":
@@ -135,6 +138,7 @@ def build_nonexact_plan(
             topology_candidate_pool_size=topology_pool_size(size),
             fallback_margin=1000.0,
             process_model=process_model,
+            tool_event_gate=tool_event_gate,
         )
     if method == "process_aware_beam_polished":
         return plan_process_aware_beam_polished_route(
@@ -155,6 +159,7 @@ def build_nonexact_plan(
             topology_candidate_pool_size=topology_pool_size(size),
             fallback_margin=1000.0,
             process_model=process_model,
+            tool_event_gate=tool_event_gate,
         )
     if method == "process_local_search_multistart":
         return plan_process_local_search_multistart_route(
@@ -260,6 +265,7 @@ def run_case(
     )[0]
     panel = Panel(layout.panel_id, layout.panel_width, layout.panel_height)
     process_model = build_process_model_from_args(layout, args)
+    tool_event_gate = build_tool_event_gate_from_args(args)
     units = build_candidate_cutting_units(
         layout,
         tool,
@@ -310,6 +316,7 @@ def run_case(
             panel,
             tool,
             process_model,
+            tool_event_gate,
             len(layout.rectangles),
         )
         runtime_ms = (perf_counter() - start) * 1000.0
@@ -413,6 +420,7 @@ def parse_args() -> argparse.Namespace:
     )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
+    add_tool_event_gate_args(parser)
     return apply_experiment_preset(parser.parse_args())
 
 

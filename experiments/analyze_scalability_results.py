@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 METHOD_LABELS = {
     "topology_process_aware": "Process-aware topology",
     "process_aware_beam": "Process-aware beam",
-    "process_aware_beam_adaptive_polished": "Adaptive beam+LS",
+    "process_aware_beam_adaptive_polished": "Event-gated adaptive beam+LS",
 }
 METHOD_COLORS = {
     "topology_process_aware": "#264653",

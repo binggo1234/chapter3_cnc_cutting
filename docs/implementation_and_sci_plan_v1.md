@@ -356,7 +356,7 @@ scripts/reproduce_chapter3_paper_artifacts.sh artifacts
 
 当前新增代表性路线图：
 
-- `figures/representative_route_cases_after_runtime_opt/main_adaptive_gain.png`：最终 `Adaptive beam+LS` 相对路径基线、工艺拓扑和普通 beam 的代表性收益；
+- `figures/representative_route_cases_after_runtime_opt/main_adaptive_gain.png`：最终 `Event-gated Adaptive beam+LS` 相对路径基线、工艺拓扑和普通 beam 的代表性收益；
 - `figures/representative_route_cases_after_runtime_opt/shared_unit_ablation.png`：共边/同线切割单元消融；
 - `figures/representative_route_cases_after_runtime_opt/stability_guidance_ablation.png`：稳定性引导消融；
 - `figures/representative_route_cases_after_runtime_opt/adjacency_support_ablation.png`：邻接支撑消融；

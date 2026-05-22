@@ -5,6 +5,7 @@ import sys
 from typing import Sequence
 
 from cnc_cutting.models import CuttingProcessModel, EdgeRole, Layout
+from cnc_cutting.optimizer import DEFAULT_TOOL_EVENT_GATE_CONFIG, ToolEventGateConfig
 from cnc_cutting.process_model import build_process_model
 
 
@@ -50,6 +51,32 @@ def add_stability_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-support-ratio", type=float, default=0.0)
     parser.add_argument("--min-area-normalized-support", type=float, default=0.0)
     parser.add_argument("--adjacency-support-weight", type=float, default=0.0)
+
+
+def add_tool_event_gate_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--disable-tool-event-gate",
+        action="store_true",
+        help="Disable the adaptive route selector's extra-tool-event acceptance gate.",
+    )
+    parser.add_argument(
+        "--tool-event-min-travel-saving",
+        type=float,
+        default=DEFAULT_TOOL_EVENT_GATE_CONFIG.min_travel_saving_per_extra_event,
+        help="Minimum travel-cost saving required per extra tool event.",
+    )
+    parser.add_argument(
+        "--tool-event-min-travel-saving-ratio",
+        type=float,
+        default=DEFAULT_TOOL_EVENT_GATE_CONFIG.min_travel_saving_ratio_per_extra_event,
+        help="Minimum relative travel-cost saving required per extra tool event.",
+    )
+    parser.add_argument(
+        "--tool-event-min-machining-saving",
+        type=float,
+        default=DEFAULT_TOOL_EVENT_GATE_CONFIG.min_machining_saving,
+        help="Minimum machining-cost saving required when extra tool events are added.",
+    )
 
 
 def apply_experiment_preset(
@@ -115,4 +142,25 @@ def build_process_model_from_args(
         min_remaining_support_length_ratio=args.min_support_ratio,
         min_area_normalized_support_length=args.min_area_normalized_support,
         adjacency_support_weight=args.adjacency_support_weight,
+    )
+
+
+def build_tool_event_gate_from_args(args: argparse.Namespace) -> ToolEventGateConfig:
+    return ToolEventGateConfig(
+        enabled=not getattr(args, "disable_tool_event_gate", False),
+        min_travel_saving_per_extra_event=getattr(
+            args,
+            "tool_event_min_travel_saving",
+            DEFAULT_TOOL_EVENT_GATE_CONFIG.min_travel_saving_per_extra_event,
+        ),
+        min_travel_saving_ratio_per_extra_event=getattr(
+            args,
+            "tool_event_min_travel_saving_ratio",
+            DEFAULT_TOOL_EVENT_GATE_CONFIG.min_travel_saving_ratio_per_extra_event,
+        ),
+        min_machining_saving=getattr(
+            args,
+            "tool_event_min_machining_saving",
+            DEFAULT_TOOL_EVENT_GATE_CONFIG.min_machining_saving,
+        ),
     )

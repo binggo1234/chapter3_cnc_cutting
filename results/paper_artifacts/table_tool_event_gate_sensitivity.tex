@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\caption{Sensitivity of tool-event gate thresholds relative to process-aware beam.}
+\label{tab:tool-event-gate-sensitivity}
+\begin{tabular}{lrrrrrrrrrr}
+\toprule
+strategy & gate enabled & cases & event decrease & event tie & event increase & event delta mean & travel reduction pct & machining reduction pct & increase cases travel reduction pct & increase cases machining reduction pct \\
+\midrule
+no\_gate & False & 77 & 4 & 44 & 29 & 1.79 & 5.55 & 2.05 & 10.60 & 3.88 \\
+fixed\_100 & True & 77 & 4 & 53 & 20 & 0.65 & 5.01 & 1.87 & 12.74 & 4.72 \\
+current & True & 77 & 11 & 60 & 6 & -0.44 & 3.61 & 1.34 & 14.75 & 4.98 \\
+strict & True & 77 & 11 & 62 & 4 & -0.52 & 3.22 & 1.20 & 17.82 & 6.02 \\
+\bottomrule
+\end{tabular}
+\end{table}

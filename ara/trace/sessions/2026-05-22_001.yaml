@@ -1,0 +1,35 @@
+id: "2026-05-22_001"
+date: "2026-05-22"
+timezone: "Asia/Shanghai"
+provenance: ai-executed
+summary: >
+  Completed the code closeout for thesis Chapter 3's CNC cutting algorithm. The main
+  method is now Event-gated Adaptive beam+LS, with process-aware beam protected and
+  extra tool events admitted only under benefit-justified thresholds.
+decisions:
+  - "Use `process_aware_beam_adaptive_polished` as the main algorithm implementation."
+  - "Report the method name as `Event-gated Adaptive beam+LS`."
+  - "Treat the remaining 6 tool-event increase cases as explainable tradeoffs."
+experiments:
+  - command: "python3 -m pytest"
+    result: "127 passed after adding statistical robustness tests."
+  - command: "PYTHONPATH=src:experiments scripts/reproduce_chapter3_paper_artifacts.sh artifacts"
+    result: "Regenerated paper tables, figures, board 340 route comparison, tool-event case artifacts, and statistical robustness outputs."
+  - command: "PYTHONPATH=src:experiments python3 experiments/run_tool_event_gate_sensitivity.py ... --resume --no-progress-bar"
+    result: "Verified resume keeps 282 existing decision rows and skips 77 completed cases."
+  - command: "PYTHONPATH=src:experiments python3 experiments/analyze_statistical_robustness.py ..."
+    result: "Generated paired robustness statistics with bootstrap 95% confidence intervals and exact sign-test p-values."
+artifacts:
+  - "results/paper_artifacts/table_tool_event_gate_sensitivity.csv"
+  - "results/paper_artifacts/table_tool_event_gate_decisions.csv"
+  - "results/paper_artifacts/table_tool_event_increase_cases.csv"
+  - "results/paper_artifacts/table_statistical_robustness.csv"
+  - "docs/industrial_planning_validation_protocol.md"
+  - "results/paper_artifacts/paper_artifact_index.md"
+  - "figures/paper_artifacts/fig_event_gate_board340_route_comparison.png"
+tests:
+  - "tests/test_analyze_statistical_robustness.py"
+  - "tests/test_tool_event_gate_sensitivity.py"
+  - "tests/test_optimizer.py"
+  - "tests/test_process_options.py"
+  - "tests/test_scalability_streaming.py"

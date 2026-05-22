@@ -1,0 +1,7 @@
+observations:
+  - timestamp: "2026-05-22T18:46+08:00"
+    provenance: ai-suggested
+    text: >
+      The codebase is now past algorithm exploration for Chapter 3; remaining work should
+      mostly be paper writing, table selection, and wording, unless new data invalidates
+      the current event-gated results.

@@ -1,0 +1,11 @@
+method,n,machining_cost,travel_mode_cost,hard_penalty,stability_penalty,safe_lift,runtime_ms
+Full beam,77,30245.3,10424.9,0.00,0.00,0.78,353.8
+Beam+process LS,77,30178.3,10358.0,0.00,0.00,0.78,211.6
+Single edges only,77,41939.6,9084.1,0.00,0.00,1.75,601.2
+No stability guidance,77,26446.0,6625.7,0.00,6.71,0.58,397.3
+No adjacency support,77,33806.3,13985.9,0.00,1.09,0.92,231.3
+No beam,77,30764.1,10943.7,0.00,0.00,1.17,128.4
+Multi-start process LS,77,30743.2,10922.8,0.00,0.00,1.12,271.5
+Path-LS,77,26160.1,6339.8,0.00,5.09,1.08,43.6
+No detour,77,30711.9,10891.6,0.00,0.00,3.32,135.1
+No safe travel,77,28996.2,9175.8,1.71,0.00,0.00,133.2

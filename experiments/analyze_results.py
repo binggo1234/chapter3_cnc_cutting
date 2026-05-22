@@ -38,7 +38,7 @@ METHOD_LABELS = {
     "process_local_search_multistart": "Multi-start process LS",
     "process_aware_beam": "Process-aware beam",
     "process_aware_beam_adaptive": "Adaptive beam portfolio",
-    "process_aware_beam_adaptive_polished": "Adaptive beam+LS portfolio",
+    "process_aware_beam_adaptive_polished": "Event-gated adaptive beam+LS",
     "process_aware_beam_polished": "Beam+process LS",
     "topology_local_search": "Topology+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
@@ -489,7 +489,7 @@ def write_csv(rows: tuple[dict[str, str], ...], output_path: Path) -> None:
             if field not in fieldnames:
                 fieldnames.append(field)
     with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

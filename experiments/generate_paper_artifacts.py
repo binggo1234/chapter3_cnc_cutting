@@ -45,7 +45,7 @@ METHOD_LABELS = {
     "process_aware_beam": "Process-aware beam",
     "process_aware_beam_adaptive": "Adaptive beam",
     "process_aware_beam_polished": "Beam+process LS",
-    "process_aware_beam_adaptive_polished": "Adaptive beam+LS",
+    "process_aware_beam_adaptive_polished": "Event-gated adaptive beam+LS",
     "full_process_aware_beam": "Full beam",
     "single_edges_only": "Single edges only",
     "no_stability_guidance": "No stability guidance",
@@ -175,6 +175,46 @@ def paired_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return table
 
 
+def statistical_robustness_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    metric_order = {
+        "process_key": 0,
+        "machining_cost": 1,
+        "travel_mode_cost": 2,
+        "tool_event_count": 3,
+        "runtime_ms": 4,
+    }
+    selected_metrics = set(metric_order)
+    table: list[dict[str, str]] = []
+    for row in sorted(
+        (row for row in rows if row["metric"] in selected_metrics),
+        key=lambda item: (
+            sort_key(item["baseline_method"]),
+            metric_order[item["metric"]],
+        ),
+    ):
+        table.append(
+            {
+                "baseline": label(row["baseline_method"]),
+                "metric": row["metric"],
+                "n": row["paired_cases"],
+                "target_mean": fmt(number(row, "target_mean"), 2),
+                "baseline_mean": fmt(number(row, "baseline_mean"), 2),
+                "reduction_mean_pct": fmt(number(row, "reduction_mean"), 2),
+                "reduction_median_pct": fmt(number(row, "reduction_median"), 2),
+                "ci95_pct": (
+                    f"[{fmt(number(row, 'reduction_ci95_low'), 2)}, "
+                    f"{fmt(number(row, 'reduction_ci95_high'), 2)}]"
+                ),
+                "win_tie_loss": (
+                    f"{row['wins']}/{row['ties']}/{row['losses']}"
+                ),
+                "p_value": fmt_p(row.get("sign_test_p", "")),
+                "effect_size": fmt(number(row, "effect_size"), 2),
+            }
+        )
+    return table
+
+
 def exact_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     table: list[dict[str, str]] = []
     for row in sorted(rows, key=lambda item: sort_key(item["method"])):
@@ -202,6 +242,7 @@ def portfolio_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         "fallback_wide_beam_polished": "Wide beam+LS fallback",
         "fallback_wide_beam": "Wide beam fallback",
         "portfolio_fallback_candidate": "Portfolio-only fallback",
+        "event_gate_selected_candidate": "Event-gated accepted candidate",
     }
     table: list[dict[str, str]] = []
     for row in rows:
@@ -255,12 +296,139 @@ def scalability_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return table
 
 
+def tool_event_summary_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    table: list[dict[str, str]] = []
+    for row in rows:
+        table.append(
+            {
+                "baseline": label(row["baseline_method"]),
+                "target": label(row["target_method"]),
+                "cases": row["paired_cases"],
+                "event_decrease": row["tool_event_decrease_count"],
+                "event_tie": row["tool_event_tie_count"],
+                "event_increase": row["tool_event_increase_count"],
+                "event_delta_mean": fmt(number(row, "tool_event_delta_mean"), 2),
+                "travel_reduction_pct": fmt(
+                    number(row, "travel_mode_cost_reduction_pct_mean"), 2
+                ),
+                "machining_reduction_pct": fmt(
+                    number(row, "machining_cost_reduction_pct_mean"), 2
+                ),
+            }
+        )
+    return table
+
+
+def tool_event_increase_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    table: list[dict[str, str]] = []
+    for row in rows:
+        table.append(
+            {
+                "archive": row["archive"],
+                "seed": row.get("seed", ""),
+                "board": row["board_id"],
+                "rectangles": row["rectangle_count"],
+                "event_delta": fmt(number(row, "tool_event_delta"), 0),
+                "pierce_delta": fmt(number(row, "pierce_delta"), 0),
+                "lift_delta": fmt(number(row, "lift_delta"), 0),
+                "safe_lift_delta": fmt(number(row, "safe_lift_delta"), 0),
+                "travel_reduction_pct": fmt(
+                    number(row, "travel_mode_cost_reduction_pct"), 2
+                ),
+                "machining_reduction_pct": fmt(
+                    number(row, "machining_cost_reduction_pct"), 2
+                ),
+                "detour_delta": fmt(number(row, "detour_delta"), 0),
+            }
+        )
+    return table
+
+
+def tool_event_gate_sensitivity_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    table: list[dict[str, str]] = []
+    for row in rows:
+        table.append(
+            {
+                "strategy": row["strategy"],
+                "gate_enabled": row["gate_enabled"],
+                "cases": row["n"],
+                "event_decrease": row["tool_event_decrease_count"],
+                "event_tie": row["tool_event_tie_count"],
+                "event_increase": row["tool_event_increase_count"],
+                "event_delta_mean": fmt(number(row, "tool_event_delta_mean"), 2),
+                "travel_reduction_pct": fmt(
+                    number(row, "travel_mode_cost_reduction_pct_mean"), 2
+                ),
+                "machining_reduction_pct": fmt(
+                    number(row, "machining_cost_reduction_pct_mean"), 2
+                ),
+                "increase_cases_travel_reduction_pct": fmt(
+                    number(row, "increase_cases_travel_reduction_pct_mean"), 2
+                ),
+                "increase_cases_machining_reduction_pct": fmt(
+                    number(row, "increase_cases_machining_reduction_pct_mean"), 2
+                ),
+            }
+        )
+    return table
+
+
+def tool_event_gate_decision_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    candidate_order = {
+        "topology": 0,
+        "beam": 1,
+        "polished": 2,
+        "fallback_polished": 3,
+    }
+    compact_rows = [
+        row
+        for row in rows
+        if row.get("selected") == "True" or row.get("gate_passed") == "False"
+    ]
+    compact_rows.sort(
+        key=lambda row: (
+            row["archive"],
+            row.get("seed", ""),
+            int(float(row["board_id"])),
+            row.get("selected") != "True",
+            candidate_order.get(row["candidate_source"], 99),
+        )
+    )
+    table: list[dict[str, str]] = []
+    for row in compact_rows:
+        table.append(
+            {
+                "archive": row["archive"],
+                "seed": row.get("seed", ""),
+                "board": row["board_id"],
+                "candidate_source": row["candidate_source"],
+                "selected": row["selected"],
+                "gate_reason": row["gate_reason"],
+                "extra_tool_events": fmt(number(row, "extra_tool_events"), 0),
+                "required_travel_saving": fmt(
+                    number(row, "required_travel_saving"), 1
+                ),
+                "travel_saving": fmt(number(row, "travel_saving"), 1),
+                "machining_saving": fmt(number(row, "machining_saving"), 1),
+                "baseline_events": fmt(
+                    number(row, "baseline_tool_event_count"), 0
+                ),
+                "candidate_events": fmt(
+                    number(row, "candidate_tool_event_count"), 0
+                ),
+                "baseline_detours": fmt(number(row, "baseline_detour_count"), 0),
+                "candidate_detours": fmt(number(row, "candidate_detour_count"), 0),
+            }
+        )
+    return table
+
+
 def write_table(rows: list[dict[str, str]], output_path: Path) -> None:
     if not rows:
         return
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -437,7 +605,7 @@ def write_summary_markdown(
             "- Distance-only path search is shorter but violates the process stability objective.",
             "- Heterogeneous cutting units reduce repeated cutting and lower total machining cost.",
             "- Process-aware beam search improves over topology-only and multi-start process local search on paired real boards.",
-            "- Adaptive beam expansion provides a quality-prioritized robust variant for difficult boards.",
+            "- Event-gated adaptive beam+LS keeps process-aware beam as a protected candidate and accepts extra tool events only when they are justified by clear travel-cost and machining-cost savings.",
         ]
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -451,7 +619,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT
         / "results"
-        / "analysis_paper_main_margin1000_after_detour_intgraph_real_20_50"
+        / "analysis_adaptive_event_gate_protected_real_20x3_20_50"
         / "method_summary.csv",
     )
     parser.add_argument(
@@ -459,7 +627,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT
         / "results"
-        / "analysis_paper_main_margin1000_after_detour_intgraph_real_20_50"
+        / "analysis_adaptive_event_gate_protected_real_20x3_20_50"
         / "paired_summary.csv",
     )
     parser.add_argument(
@@ -486,9 +654,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--portfolio-summary",
         type=Path,
+        default=ROOT / "results" / "adaptive_event_gate_protected_selection_summary.csv",
+    )
+    parser.add_argument(
+        "--tool-event-summary",
+        type=Path,
+        default=ROOT / "results" / "adaptive_event_gate_protected_tool_event_summary.csv",
+    )
+    parser.add_argument(
+        "--statistical-robustness",
+        type=Path,
+        default=ROOT / "results" / "statistical_robustness_real_20_50.csv",
+    )
+    parser.add_argument(
+        "--tool-event-increase-cases",
+        type=Path,
         default=ROOT
         / "results"
-        / "adaptive_polished_selection_attribution_margin1000_after_detour_intgraph_summary.csv",
+        / "adaptive_event_gate_protected_tool_event_increase_cases.csv",
+    )
+    parser.add_argument(
+        "--tool-event-gate-sensitivity-summary",
+        type=Path,
+        default=ROOT
+        / "results"
+        / "tool_event_gate_sensitivity_real_20_50_summary.csv",
+    )
+    parser.add_argument(
+        "--tool-event-gate-decision-cases",
+        type=Path,
+        default=ROOT
+        / "results"
+        / "tool_event_gate_current_decisions_real_20_50.csv",
+    )
+    parser.add_argument(
+        "--tool-event-gate-sensitivity-figure",
+        type=Path,
+        default=ROOT
+        / "figures"
+        / "tool_event_gate_sensitivity_real_20_50"
+        / "fig_tool_event_gate_sensitivity.pdf",
     )
     parser.add_argument(
         "--margin-summary",
@@ -542,6 +747,29 @@ def main() -> None:
         load_rows(args.portfolio_summary) if args.portfolio_summary.exists() else []
     )
     margin_rows = load_rows(args.margin_summary) if args.margin_summary.exists() else []
+    tool_event_rows = (
+        load_rows(args.tool_event_summary) if args.tool_event_summary.exists() else []
+    )
+    statistical_robustness_rows = (
+        load_rows(args.statistical_robustness)
+        if args.statistical_robustness.exists()
+        else []
+    )
+    tool_event_increase_rows = (
+        load_rows(args.tool_event_increase_cases)
+        if args.tool_event_increase_cases.exists()
+        else []
+    )
+    tool_event_gate_sensitivity_rows = (
+        load_rows(args.tool_event_gate_sensitivity_summary)
+        if args.tool_event_gate_sensitivity_summary.exists()
+        else []
+    )
+    tool_event_gate_decision_rows = (
+        load_rows(args.tool_event_gate_decision_cases)
+        if args.tool_event_gate_decision_cases.exists()
+        else []
+    )
     scalability_rows = (
         load_rows(args.scalability_summary)
         if args.scalability_summary.exists()
@@ -567,10 +795,16 @@ def main() -> None:
     write_latex_table(
         main_pair_table,
         args.tables_dir / "table_main_paired_comparison.tex",
-        "Paired comparison using Adaptive beam+LS as the target method.",
+        "Paired comparison using event-gated adaptive beam+LS as the target method.",
         "tab:main-paired-comparison",
     )
     tables["main paired comparison"] = main_pair_path
+
+    if statistical_robustness_rows:
+        robustness_output = statistical_robustness_table(statistical_robustness_rows)
+        robustness_table_path = args.tables_dir / "table_statistical_robustness.csv"
+        write_table(robustness_output, robustness_table_path)
+        tables["statistical robustness"] = robustness_table_path
 
     ablation_table = method_summary_table(ablation_methods, ABLATION_ORDER)
     ablation_table_path = args.tables_dir / "table_ablation_method_summary.csv"
@@ -618,6 +852,47 @@ def main() -> None:
         )
         tables["portfolio selection summary"] = portfolio_table_path
 
+    if tool_event_rows:
+        tool_event_output = tool_event_summary_table(tool_event_rows)
+        tool_event_table_path = args.tables_dir / "table_tool_event_gate_summary.csv"
+        write_table(tool_event_output, tool_event_table_path)
+        write_latex_table(
+            tool_event_output,
+            args.tables_dir / "table_tool_event_gate_summary.tex",
+            "Tool-event gate effect relative to process-aware beam.",
+            "tab:tool-event-gate-summary",
+        )
+        tables["tool-event gate summary"] = tool_event_table_path
+
+    if tool_event_increase_rows:
+        increase_output = tool_event_increase_table(tool_event_increase_rows)
+        increase_table_path = args.tables_dir / "table_tool_event_increase_cases.csv"
+        write_table(increase_output, increase_table_path)
+        tables["tool-event increase cases"] = increase_table_path
+    if tool_event_gate_sensitivity_rows:
+        sensitivity_output = tool_event_gate_sensitivity_table(
+            tool_event_gate_sensitivity_rows
+        )
+        sensitivity_table_path = (
+            args.tables_dir / "table_tool_event_gate_sensitivity.csv"
+        )
+        write_table(sensitivity_output, sensitivity_table_path)
+        write_latex_table(
+            sensitivity_output,
+            args.tables_dir / "table_tool_event_gate_sensitivity.tex",
+            "Sensitivity of tool-event gate thresholds relative to process-aware beam.",
+            "tab:tool-event-gate-sensitivity",
+        )
+        tables["tool-event gate sensitivity"] = sensitivity_table_path
+    if tool_event_gate_decision_rows:
+        decision_output = tool_event_gate_decision_table(tool_event_gate_decision_rows)
+        decision_table_path = args.tables_dir / "table_tool_event_gate_decisions.csv"
+        write_table(decision_output, decision_table_path)
+        tables["tool-event gate decisions"] = decision_table_path
+    board340_route_metrics = args.tables_dir / "event_gate_board340_route_metrics.csv"
+    if board340_route_metrics.exists():
+        tables["board 340 route metrics"] = board340_route_metrics
+
     if margin_rows:
         margin_output = margin_sensitivity_table(margin_rows)
         margin_table_path = args.tables_dir / "table_margin_sensitivity_summary.csv"
@@ -656,6 +931,11 @@ def main() -> None:
         args.figures_dir,
         "fig_final_scalability_summary",
     )
+    tool_event_gate_sensitivity_figures = copy_optional_figure(
+        args.tool_event_gate_sensitivity_figure,
+        args.figures_dir,
+        "fig_tool_event_gate_sensitivity",
+    )
 
     figures = {
         "main method summary": args.figures_dir / "fig_main_method_summary.pdf",
@@ -667,9 +947,18 @@ def main() -> None:
         figures["margin sensitivity"] = margin_figures["pdf"]
     if "pdf" in scalability_figures:
         figures["scalability"] = scalability_figures["pdf"]
+    if "pdf" in tool_event_gate_sensitivity_figures:
+        figures["tool-event gate sensitivity"] = (
+            tool_event_gate_sensitivity_figures["pdf"]
+        )
     route_figure = args.figures_dir / "fig_route_large_gain_with_polish.png"
     if route_figure.exists():
         figures["representative route"] = route_figure
+    board340_route_figure = (
+        args.figures_dir / "fig_event_gate_board340_route_comparison.png"
+    )
+    if board340_route_figure.exists():
+        figures["board 340 event-gate route"] = board340_route_figure
     write_summary_markdown(args.tables_dir / "paper_artifact_index.md", tables, figures)
 
     print(f"tables: {args.tables_dir}")

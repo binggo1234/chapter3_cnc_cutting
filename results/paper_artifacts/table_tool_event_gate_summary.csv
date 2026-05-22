@@ -1,0 +1,2 @@
+baseline,target,cases,event_decrease,event_tie,event_increase,event_delta_mean,travel_reduction_pct,machining_reduction_pct
+Process-aware beam,Event-gated adaptive beam+LS,77,11,60,6,-0.44,3.61,1.34

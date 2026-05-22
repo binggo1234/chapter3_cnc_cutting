@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering
+\caption{Scalability summary for final method candidates.}
+\label{tab:scalability-summary}
+\begin{tabular}{lrrrrrrr}
+\toprule
+scenario & size & method & n & travel mode cost & runtime ms & hard penalty & stability penalty \\
+\midrule
+clustered & 50 & Process-aware beam & 3 & 6008.1 & 526.5 & 0.00 & 0.00 \\
+clustered & 50 & Event-gated adaptive beam+LS & 3 & 5982.9 & 671.9 & 0.00 & 0.00 \\
+clustered & 50 & Process-aware topology & 3 & 7818.3 & 225.6 & 0.00 & 0.00 \\
+clustered & 75 & Process-aware beam & 3 & 9631.2 & 1145.9 & 0.00 & 0.00 \\
+clustered & 75 & Event-gated adaptive beam+LS & 3 & 8846.9 & 1703.9 & 0.00 & 0.00 \\
+clustered & 75 & Process-aware topology & 3 & 11175.6 & 336.0 & 0.00 & 0.00 \\
+clustered & 100 & Process-aware beam & 3 & 11908.9 & 1050.8 & 0.00 & 0.00 \\
+clustered & 100 & Event-gated adaptive beam+LS & 3 & 11899.2 & 1225.4 & 0.00 & 0.00 \\
+clustered & 100 & Process-aware topology & 3 & 15956.9 & 479.0 & 0.00 & 0.00 \\
+grid & 50 & Process-aware beam & 1 & 7400.6 & 3601.8 & 0.00 & 0.00 \\
+grid & 50 & Event-gated adaptive beam+LS & 1 & 7400.6 & 5613.1 & 0.00 & 0.00 \\
+grid & 50 & Process-aware topology & 1 & 9517.2 & 2043.2 & 0.00 & 0.00 \\
+\bottomrule
+\end{tabular}
+\end{table}

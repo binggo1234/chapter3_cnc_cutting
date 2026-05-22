@@ -1,0 +1,7 @@
+archive,seed,board,rectangles,event_delta,pierce_delta,lift_delta,safe_lift_delta,travel_reduction_pct,machining_reduction_pct,detour_delta
+paper_extended_suite_20260321_continuous_run_only_20260324_0001.zip,seed_1004,149,21,3,1,0,2,8.62,2.90,-43
+review_overnight_20260422.zip,seed_1000,340,30,3,2,1,0,17.82,6.02,-27
+review_overnight_20260422.zip,seed_1001,340,30,3,2,1,0,17.82,6.02,-27
+review_overnight_20260422.zip,seed_1002,340,30,3,2,1,0,17.82,6.02,-27
+review_overnight_20260422.zip,seed_1003,340,30,3,2,1,0,17.82,6.02,-27
+strong_baseline_overnight_20260407_001243.zip,seed_1004,149,21,3,1,0,2,8.62,2.90,-43

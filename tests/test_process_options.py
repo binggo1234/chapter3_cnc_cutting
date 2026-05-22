@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "experiments"))
 
-from process_options import apply_experiment_preset  # noqa: E402
+from process_options import apply_experiment_preset, build_tool_event_gate_from_args  # noqa: E402
 
 
 def base_args() -> argparse.Namespace:
@@ -59,3 +59,19 @@ def test_custom_preset_keeps_existing_values() -> None:
     assert args.support_policy == "top"
     assert args.min_support_ratio == 0.0
     assert args.adjacency_support_weight == 0.0
+
+
+def test_build_tool_event_gate_from_args() -> None:
+    args = argparse.Namespace(
+        disable_tool_event_gate=True,
+        tool_event_min_travel_saving=250.0,
+        tool_event_min_travel_saving_ratio=0.05,
+        tool_event_min_machining_saving=1.0,
+    )
+
+    config = build_tool_event_gate_from_args(args)
+
+    assert config.enabled is False
+    assert config.min_travel_saving_per_extra_event == 250.0
+    assert config.min_travel_saving_ratio_per_extra_event == 0.05
+    assert config.min_machining_saving == 1.0

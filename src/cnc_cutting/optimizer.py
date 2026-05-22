@@ -41,6 +41,30 @@ class RoutePlan:
 
 MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT = 100.0
 MIN_TRAVEL_COST_SAVING_RATIO_PER_EXTRA_TOOL_EVENT = 0.02
+MIN_MACHINING_COST_SAVING_FOR_EXTRA_TOOL_EVENT = 1e-9
+
+
+@dataclass(frozen=True)
+class ToolEventGateConfig:
+    enabled: bool = True
+    min_travel_saving_per_extra_event: float = (
+        MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT
+    )
+    min_travel_saving_ratio_per_extra_event: float = (
+        MIN_TRAVEL_COST_SAVING_RATIO_PER_EXTRA_TOOL_EVENT
+    )
+    min_machining_saving: float = MIN_MACHINING_COST_SAVING_FOR_EXTRA_TOOL_EVENT
+
+    def __post_init__(self) -> None:
+        if self.min_travel_saving_per_extra_event < 0.0:
+            raise ValueError("min_travel_saving_per_extra_event must be non-negative")
+        if self.min_travel_saving_ratio_per_extra_event < 0.0:
+            raise ValueError("min_travel_saving_ratio_per_extra_event must be non-negative")
+        if self.min_machining_saving < 0.0:
+            raise ValueError("min_machining_saving must be non-negative")
+
+
+DEFAULT_TOOL_EVENT_GATE_CONFIG = ToolEventGateConfig()
 
 
 def _tool_event_count(metrics: PathMetrics) -> int:
@@ -50,7 +74,11 @@ def _tool_event_count(metrics: PathMetrics) -> int:
 def _tool_event_increase_justified(
     candidate: PathMetrics,
     alternative: PathMetrics,
+    tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
 ) -> bool:
+    if not tool_event_gate.enabled:
+        return True
+
     extra_events = _tool_event_count(candidate) - _tool_event_count(alternative)
     if extra_events <= 0:
         return True
@@ -58,12 +86,12 @@ def _tool_event_increase_justified(
     travel_saving = alternative.travel_mode_cost - candidate.travel_mode_cost
     machining_saving = alternative.machining_cost - candidate.machining_cost
     required_saving_per_event = max(
-        MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT,
+        tool_event_gate.min_travel_saving_per_extra_event,
         alternative.travel_mode_cost
-        * MIN_TRAVEL_COST_SAVING_RATIO_PER_EXTRA_TOOL_EVENT,
+        * tool_event_gate.min_travel_saving_ratio_per_extra_event,
     )
     return (
-        machining_saving > 1e-9
+        machining_saving > tool_event_gate.min_machining_saving
         and travel_saving >= required_saving_per_event * extra_events
     )
 
@@ -71,9 +99,14 @@ def _tool_event_increase_justified(
 def _route_passes_tool_event_gate(
     candidate: RoutePlan,
     alternatives: tuple[RoutePlan, ...],
+    tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
 ) -> bool:
     return all(
-        _tool_event_increase_justified(candidate.metrics, alternative.metrics)
+        _tool_event_increase_justified(
+            candidate.metrics,
+            alternative.metrics,
+            tool_event_gate=tool_event_gate,
+        )
         for alternative in alternatives
         if alternative is not candidate
     )
@@ -109,6 +142,7 @@ def wider_beam_search_config(config: BeamSearchConfig | None = None) -> BeamSear
 def _best_process_route(
     plans: tuple[RoutePlan, ...],
     protected_plans: tuple[RoutePlan, ...] = (),
+    tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
 ) -> RoutePlan:
     if not plans:
         raise ValueError("at least one route plan is required")
@@ -117,7 +151,8 @@ def _best_process_route(
     gated_plans = tuple(
         plan
         for plan in plans
-        if id(plan) in protected_plan_ids or _route_passes_tool_event_gate(plan, plans)
+        if id(plan) in protected_plan_ids
+        or _route_passes_tool_event_gate(plan, plans, tool_event_gate=tool_event_gate)
     )
     if not gated_plans:
         gated_plans = plans
@@ -465,6 +500,7 @@ def plan_process_aware_beam_adaptive_route(
     topology_candidate_pool_size: int | None = None,
     fallback_margin: float = 1000.0,
     process_model: CuttingProcessModel | None = None,
+    tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
 ) -> RoutePlan:
     """Bounded portfolio planner that expands beam search only on risky cases.
 
@@ -506,7 +542,11 @@ def plan_process_aware_beam_adaptive_route(
                 process_model=process_model,
             )
         )
-    return _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
+    return _best_process_route(
+        tuple(candidates),
+        protected_plans=(beam_plan,),
+        tool_event_gate=tool_event_gate,
+    )
 
 
 def plan_process_aware_beam_adaptive_polished_route(
@@ -520,6 +560,7 @@ def plan_process_aware_beam_adaptive_polished_route(
     topology_candidate_pool_size: int | None = None,
     fallback_margin: float = 1000.0,
     process_model: CuttingProcessModel | None = None,
+    tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
 ) -> RoutePlan:
     """Adaptive portfolio with process-aware local polishing as a candidate."""
 
@@ -550,7 +591,11 @@ def plan_process_aware_beam_adaptive_polished_route(
         process_model=process_model,
     )
     candidates = [topology_plan, beam_plan, polished_plan]
-    current_best = _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
+    current_best = _best_process_route(
+        tuple(candidates),
+        protected_plans=(beam_plan,),
+        tool_event_gate=tool_event_gate,
+    )
     if _beam_fallback_needed(current_best, topology_plan, fallback_margin):
         fallback_result = process_aware_beam_search_order(
             selected_units,
@@ -573,7 +618,11 @@ def plan_process_aware_beam_adaptive_polished_route(
                 process_model=process_model,
             )
         )
-    return _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
+    return _best_process_route(
+        tuple(candidates),
+        protected_plans=(beam_plan,),
+        tool_event_gate=tool_event_gate,
+    )
 
 
 def plan_process_aware_beam_polished_route(

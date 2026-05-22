@@ -22,6 +22,8 @@ from .models import (
     ToolConfig,
 )
 from .optimizer import (
+    DEFAULT_TOOL_EVENT_GATE_CONFIG,
+    ToolEventGateConfig,
     plan_greedy_route,
     plan_exact_process_dp_route,
     plan_local_search_route,
@@ -50,6 +52,8 @@ __all__ = [
     "Point",
     "SyntheticLayoutConfig",
     "ToolConfig",
+    "ToolEventGateConfig",
+    "DEFAULT_TOOL_EVENT_GATE_CONFIG",
     "build_candidate_cutting_units",
     "build_unit_cutting_graph",
     "build_process_model",

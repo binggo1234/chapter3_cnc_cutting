@@ -1,0 +1,16 @@
+baseline,metric,n,target_mean,baseline_mean,reduction_mean_pct,reduction_median_pct,ci95_pct,win_tie_loss,p_value,effect_size
+Process-aware topology,process_key,77,29816.02,30764.05,2.85,2.21,"[1.83, 3.91]",58/3/16,<1e-4,0.63
+Process-aware topology,machining_cost,77,29816.02,30764.05,2.85,2.21,"[1.87, 3.85]",58/3/16,<1e-4,0.63
+Process-aware topology,travel_mode_cost,77,9995.67,10943.71,7.56,5.86,"[4.90, 10.30]",58/3/16,<1e-4,0.63
+Process-aware topology,tool_event_count,77,61.45,69.53,11.14,11.69,"[9.47, 12.83]",64/4/9,<1e-4,1.45
+Process-aware topology,runtime_ms,77,568.65,125.47,-429.48,-457.42,"[-488.38, -373.86]",0/0/77,<1e-4,-1.66
+Multi-start process LS,process_key,77,29816.02,30743.19,2.79,2.21,"[1.78, 3.81]",58/3/16,<1e-4,0.62
+Multi-start process LS,machining_cost,77,29816.02,30743.19,2.79,2.21,"[1.77, 3.83]",58/3/16,<1e-4,0.62
+Multi-start process LS,travel_mode_cost,77,9995.67,10922.85,7.42,5.86,"[4.94, 10.23]",58/3/16,<1e-4,0.62
+Multi-start process LS,tool_event_count,77,61.45,69.48,11.08,10.98,"[9.34, 12.74]",64/4/9,<1e-4,1.44
+Multi-start process LS,runtime_ms,77,568.65,268.98,-117.91,-144.42,"[-137.96, -97.75]",8/0/69,<1e-4,-1.33
+Process-aware beam,process_key,77,29816.02,30245.25,1.34,0.00,"[0.80, 1.92]",26/51/0,<1e-4,0.54
+Process-aware beam,machining_cost,77,29816.02,30245.25,1.34,0.00,"[0.82, 1.90]",26/51/0,<1e-4,0.54
+Process-aware beam,travel_mode_cost,77,9995.67,10424.91,3.61,0.00,"[2.20, 5.18]",26/51/0,<1e-4,0.55
+Process-aware beam,tool_event_count,77,61.45,61.90,0.76,0.00,"[0.08, 1.54]",11/60/6,0.3323,0.22
+Process-aware beam,runtime_ms,77,568.65,347.95,-88.58,-106.93,"[-108.27, -68.32]",24/0/53,0.0013,-0.98

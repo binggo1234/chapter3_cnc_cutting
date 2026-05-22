@@ -1,6 +1,6 @@
 # Paper-main 真实数据主实验小结
 
-日期：2026-05-21
+日期：2026-05-22
 
 ## 最终默认配置
 
@@ -11,6 +11,7 @@
 - `adjacency_support_weight = 1.0`
 - `min_support_count = 1`
 - `fallback_margin = 1000.0`
+- `tool_event_gate = enabled`
 
 本轮代码已将低位绕障内部图从 `Point` 字典/集合改为整数节点邻接表，并把绕障搜索从纯 Dijkstra 改为带曼哈顿启发的 A*。该优化不改变目标函数和可行性约束，只降低高密度布局下的几何路径评估开销。
 
@@ -22,47 +23,56 @@
 - 过滤范围为 20-50 个矩形件；
 - 共 77 张真实板材。
 
-最终主方法为 `process_aware_beam_adaptive_polished`，论文表述可写为 `Adaptive beam+LS`。它是一个质量优先 portfolio：先比较普通 beam、beam+process LS、自适应 beam，并在拓扑基线附近触发宽束宽精修兜底。
+最终主方法为 `process_aware_beam_adaptive_polished`，论文表述建议写为 `Event-gated Adaptive beam+LS`。它是一个带刀具事件门控的 adaptive portfolio：普通 `process_aware_beam` 作为受保护候选，局部精修或自适应候选只有在额外刀具事件被足够的通行代价和加工总代价收益证明时才进入最终比较。
 
 ## 主方法对比
 
 输出文件：
 
-- `results/paper_main_margin1000_after_detour_intgraph_real_20_50.csv`
-- `results/analysis_paper_main_margin1000_after_detour_intgraph_real_20_50/`
+- `results/adaptive_event_gate_protected_real_20x3_20_50.csv`
+- `results/analysis_adaptive_event_gate_protected_real_20x3_20_50/`
+- `results/adaptive_event_gate_protected_tool_event_summary.csv`
+- `results/adaptive_event_gate_protected_tool_event_increase_cases.csv`
 - `results/paper_artifacts/table_main_method_summary.csv`
 - `results/paper_artifacts/table_main_paired_comparison.csv`
+- `results/paper_artifacts/table_statistical_robustness.csv`
+- `results/paper_artifacts/table_tool_event_gate_summary.csv`
+- `results/paper_artifacts/table_tool_event_increase_cases.csv`
+- `results/paper_artifacts/table_tool_event_gate_sensitivity.csv`
+- `results/paper_artifacts/table_tool_event_gate_decisions.csv`
 - `figures/paper_artifacts/fig_main_method_summary.pdf`
 
 关键结果：
 
-- `Adaptive beam+LS` 平均 `travel_mode_cost = 9788.2`，平均 `machining_cost = 29608.6`，平均运行时间 `462.1 ms`；
+- `Event-gated Adaptive beam+LS` 平均 `travel_mode_cost = 9995.7`，平均 `machining_cost = 29816.0`，平均运行时间 `568.6 ms`；
 - 该方法在 77 张板上平均 `hard_penalty = 0`，`stability_penalty = 0`；
-- 相比 `topology_process_aware`，平均 `travel_mode_cost` 降低 `9.74%`，配对工艺目标胜率 `75.3%`，符号检验 `p < 1e-4`；
-- 相比 `process_local_search_multistart`，平均 `travel_mode_cost` 降低 `9.60%`，配对工艺目标胜率 `75.3%`；
-- 相比 `process_aware_beam`，平均 `travel_mode_cost` 降低 `5.55%`；
+- 相比 `topology_process_aware`，平均 `travel_mode_cost` 降低 `7.56%`，配对工艺目标胜率 `75.3%`，符号检验 `p < 1e-4`；
+- 相比 `process_local_search_multistart`，平均 `travel_mode_cost` 降低 `7.42%`，配对工艺目标胜率 `75.3%`；
+- 相比 `process_aware_beam`，平均 `travel_mode_cost` 降低 `3.61%`，平均 `machining_cost` 降低 `1.34%`；
+- bootstrap 95% CI 均为正：相对 `topology_process_aware` 的 `travel_mode_cost` 降低区间为 `[4.90%, 10.30%]`，相对 `process_local_search_multistart` 为 `[4.94%, 10.23%]`，相对 `process_aware_beam` 为 `[2.20%, 5.18%]`；
+- 相比 `process_aware_beam`，刀具事件在 11 个案例减少、60 个案例持平、6 个案例增加，平均减少 `0.44`；
 - 相比纯路径距离局部搜索 `Path-LS`，本文方法路径成本更高，但将平均稳定性惩罚从 `5.09` 降为 `0`，说明本文优化目标不是单纯路径最短，而是满足 CNC 工艺稳定性的可加工路径。
 
-## Adaptive margin 选择
+## 刀具事件门控案例
 
 输出文件：
 
-- `results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_summary.csv`
-- `figures/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50/fig_adaptive_margin_sensitivity.pdf`
+- `docs/event_gate_tool_event_case_analysis.md`
+- `results/paper_artifacts/table_tool_event_gate_summary.csv`
+- `results/paper_artifacts/table_tool_event_increase_cases.csv`
+- `results/paper_artifacts/table_tool_event_gate_sensitivity.csv`
+- `results/paper_artifacts/table_tool_event_gate_decisions.csv`
 
 关键结果：
 
-- `margin = 500` 时，平均 `travel_mode_cost = 9904.5`，估计运行时间 `711.4 ms`；
-- `margin = 1000` 时，平均 `travel_mode_cost = 9788.2`，估计运行时间 `810.6 ms`；
-- `margin = 1500` 时，平均 `travel_mode_cost = 9783.0`，但兜底触发比例继续上升到 `76.62%`。
+- 77 个真实案例中，相对普通 beam 不增加刀具事件的案例为 71 个；
+- 剩余 6 个案例主要来自 board `149` 和 board `340` 两类重复布局；
+- board `149` 中刀具事件 `49 -> 52`，但 `travel_mode_cost` 降低 `8.62%`，detour `51 -> 8`；
+- board `340` 中刀具事件 `69 -> 72`，但 `travel_mode_cost` 降低 `17.82%`，detour `37 -> 10`。
 
-因此当前默认采用 `fallback_margin = 1000.0`。它相对 `500` 有明确质量提升，而相对 `1500` 只损失约 `5.2` 的平均路径成本，能避免过多触发宽束宽兜底。
+因此这 6 个案例不宜解释为算法失败，而应解释为“少量额外刀具事件被明确的绕行减少和加工代价收益证明”。正文可报告总体统计，补充材料或图注中展开 board `340`。
 
-portfolio 来源归因：
-
-- `Beam+process LS`：44 个实例，占 `57.14%`；
-- `Adaptive beam`：32 个实例，占 `41.56%`；
-- `Wide beam+LS fallback`：1 个实例，占 `1.30%`。
+门控敏感性结果显示，当前门控不是简单禁止额外刀具事件，而是收益证明规则：`current` 策略得到 `11/60/6` 的减少/持平/增加分布，平均 `travel_mode_cost` 降低 `3.61%`；`strict` 策略只把增加案例从 6 个压到 4 个，但平均路径收益降到 `3.22%`。因此当前阈值是工艺保守性和路径收益之间更合适的折中。
 
 ## 消融实验
 
@@ -94,8 +104,8 @@ portfolio 来源归因：
 规模实验：
 
 - 输出 `results/scalability_final_50_100_summary.csv`；
-- clustered 50/75/100 件上，`Adaptive beam+LS` 均保持 `hard_penalty = 0`、`stability_penalty = 0`；
-- grid50 难例中，`topology_process_aware` 的 `travel_mode_cost = 9517.2`，`Adaptive beam+LS` 降至 `7400.6`；绕障整数图优化后，`Adaptive beam+LS` 运行时间从约 `13.3 s` 降至约 `5.6 s`。
+- clustered 50/75/100 件上，`Event-gated Adaptive beam+LS` 均保持 `hard_penalty = 0`、`stability_penalty = 0`；
+- grid50 难例中，`topology_process_aware` 的 `travel_mode_cost = 9517.2`，`Event-gated Adaptive beam+LS` 降至 `7400.6`；绕障整数图优化后，`Event-gated Adaptive beam+LS` 运行时间从约 `13.3 s` 降至约 `5.6 s`。
 
 ## 代表性路线图
 

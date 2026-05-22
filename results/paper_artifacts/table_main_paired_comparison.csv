@@ -1,0 +1,4 @@
+baseline,cases,travel_reduction_pct,machining_reduction_pct,stability_reduction,hard_delta,process_win_rate,p_value
+Process-aware topology,77,7.56,2.85,0.00,0.00,75.3,<1e-4
+Multi-start process LS,77,7.42,2.79,0.00,0.00,75.3,<1e-4
+Process-aware beam,77,3.61,1.34,0.00,0.00,33.8,<1e-4

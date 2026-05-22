@@ -1,0 +1,4 @@
+source,n,share_pct,travel_mode_cost,runtime_ms
+Process-aware beam,51,66.23,10051.2,515.3
+Event-gated accepted candidate,23,29.87,10100.8,696.8
+Process-aware topology,3,3.90,8244.7,493.1
