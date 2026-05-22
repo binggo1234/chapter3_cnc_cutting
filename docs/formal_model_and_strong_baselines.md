@@ -207,32 +207,32 @@
 
 总代价向量为：
 
-`F(A) = (H(A), Phi_stab(A), N_tool(A), C_travel(A), D_detour(A), D_air(A), Theta(A), -R_cont(A))`
+`F_proc(A) = (H(A), Phi_stab(A), C_mach(A), N_tool(A), C_travel(A), D_air(A), Theta(A), -R_cont(A))`
 
 其中：
 
 - `H(A) = H_boundary(A) + H_collision(A)`：硬约束惩罚；
 - `Phi_stab(A)`：动态稳定性惩罚；
+- `C_mach(A) = C_cut(A) + C_travel(A)`：切割长度与模式加权空移代价之和；
 - `N_tool(A)`：入刀、抬刀、安全抬刀等刀具事件数；
 - `C_travel(A)`：模式加权空移代价；
-- `D_detour(A)`：低位绕行距离；
 - `D_air(A)`：原始空移距离；
 - `Theta(A)`：方向变化惩罚；
 - `R_cont(A)`：连续切割奖励。
 
 算法比较两个路径 `A` 与 `A'` 时采用字典序：
 
-`A' better than A iff F(A') <_lex F(A)`
+`A' better than A iff F_proc(A') <_lex F_proc(A)`
 
 也可写成大权重等价形式：
 
-`min M_1 H(A) + M_2 Phi_stab(A) + M_3 N_tool(A) + C_travel(A) + w_d D_detour(A) + w_a D_air(A) + w_theta Theta(A) - w_r R_cont(A)`
+`min M_1 H(A) + M_2 Phi_stab(A) + M_3 C_mach(A) + M_4 N_tool(A) + C_travel(A) + w_a D_air(A) + w_theta Theta(A) - w_r R_cont(A)`
 
 其中：
 
-`M_1 >> M_2 >> M_3 >> w_d, w_a, w_theta, w_r`
+`M_1 >> M_2 >> M_3 >> M_4 >> 1`
 
-代码中对应 `metrics.compare_metrics()`、`process_metric_key()` 和 `process_state_metric_key()`。
+主算法最终选择口径对应 `process_metric_key()`；beam 前缀筛选对应 `process_state_metric_key()`。刀具事件不是简单越少越好，而是在 `process_metric_key()` 中位于 `machining_cost` 之后，并由 event gate 额外限制：非保护候选若增加刀具事件，必须同时给出足够的通行代价收益和加工总代价收益，才能进入最终比较。最终主方法的完整理论表述见 `docs/formal_theory_event_gated_beam_ls.md`。
 
 ## 6. 状态图求解形式
 
