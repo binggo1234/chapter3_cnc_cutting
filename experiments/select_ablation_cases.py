@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT
         / "results"
-        / "analysis_ablation_real_3x3_upto50"
+        / "analysis_ablation_full_real_20_50"
         / "paired_comparison.csv",
     )
     parser.add_argument(

@@ -12,9 +12,14 @@ from cnc_cutting.models import (
 )
 from cnc_cutting.optimizer import (
     greedy_unit_actions,
+    plan_exact_process_dp_route,
     plan_path_distance_local_search_route,
     plan_greedy_route,
     plan_local_search_route,
+    plan_process_local_search_multistart_route,
+    plan_process_aware_beam_adaptive_route,
+    plan_process_aware_beam_adaptive_polished_route,
+    plan_process_aware_beam_polished_route,
     plan_process_aware_beam_route,
     plan_topology_route,
     select_coverage_units,
@@ -128,6 +133,81 @@ def test_plan_process_aware_beam_route_returns_incremental_metrics() -> None:
     unit = _single_unit("u1", Point(0, 0), Point(10, 0))
 
     plan = plan_process_aware_beam_route(
+        (unit,),
+        Panel("P", 100, 100),
+        ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),
+    )
+
+    assert len(plan.selected_units) == 1
+    assert plan.metrics.cutting_length == 10
+    assert plan.metrics.pierce_count == 1
+    assert plan.metrics.lift_count == 1
+
+
+def test_plan_process_aware_beam_adaptive_route_returns_incremental_metrics() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+
+    plan = plan_process_aware_beam_adaptive_route(
+        (unit,),
+        Panel("P", 100, 100),
+        ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),
+    )
+
+    assert len(plan.selected_units) == 1
+    assert plan.metrics.cutting_length == 10
+    assert plan.metrics.pierce_count == 1
+    assert plan.metrics.lift_count == 1
+
+
+def test_plan_process_aware_beam_adaptive_polished_route_returns_incremental_metrics() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+
+    plan = plan_process_aware_beam_adaptive_polished_route(
+        (unit,),
+        Panel("P", 100, 100),
+        ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),
+    )
+
+    assert len(plan.selected_units) == 1
+    assert plan.metrics.cutting_length == 10
+    assert plan.metrics.pierce_count == 1
+    assert plan.metrics.lift_count == 1
+
+
+def test_plan_process_local_search_multistart_route_returns_incremental_metrics() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+
+    plan = plan_process_local_search_multistart_route(
+        (unit,),
+        Panel("P", 100, 100),
+        ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),
+    )
+
+    assert len(plan.selected_units) == 1
+    assert plan.metrics.cutting_length == 10
+    assert plan.metrics.pierce_count == 1
+    assert plan.metrics.lift_count == 1
+
+
+def test_plan_exact_process_dp_route_returns_incremental_metrics() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+
+    plan = plan_exact_process_dp_route(
+        (unit,),
+        Panel("P", 100, 100),
+        ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),
+    )
+
+    assert len(plan.selected_units) == 1
+    assert plan.metrics.cutting_length == 10
+    assert plan.metrics.pierce_count == 1
+    assert plan.metrics.lift_count == 1
+
+
+def test_plan_process_aware_beam_polished_route_returns_incremental_metrics() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+
+    plan = plan_process_aware_beam_polished_route(
         (unit,),
         Panel("P", 100, 100),
         ToolConfig(trim_margin=0, tool_diameter=6, start_point=Point(0, 0)),

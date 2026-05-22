@@ -5,11 +5,12 @@ from math import ceil
 
 from .geometry import euclidean_distance
 from .metrics import (
+    add_metrics,
     apply_action_incremental,
     evaluate_actions,
     finalize_metrics,
     materialize_action_clearance,
-    metrics_better,
+    subtract_metrics,
 )
 from .models import (
     CuttingAction,
@@ -90,6 +91,12 @@ class BeamSearchResult:
     diagnostics: tuple["BeamLayerDiagnostics", ...] = ()
 
 
+def process_aware_exact_candidate_limit(candidate_pool_size: int | None) -> int | None:
+    if candidate_pool_size is None:
+        return None
+    return max(16, candidate_pool_size // 3)
+
+
 @dataclass(frozen=True)
 class BeamLayerDiagnostics:
     depth: int
@@ -120,6 +127,7 @@ class BeamLayerDiagnostics:
 class NeighborMove:
     directed_units: tuple[DirectedUnitCandidate, ...]
     affected_start_index: int
+    affected_stop_index: int
 
 
 @dataclass(frozen=True)
@@ -263,6 +271,60 @@ def evaluate_directed_units_from_prefix(
             process_model=process_model,
         )
     return finalize_metrics(state)
+
+
+def _state_rejoins_suffix(
+    state: IncrementalMetricsState,
+    reference_state: IncrementalMetricsState,
+) -> bool:
+    return (
+        state.current_point == reference_state.current_point
+        and state.current_direction == reference_state.current_direction
+        and state.is_tool_down == reference_state.is_tool_down
+        and state.current_cutting_unit_id == reference_state.current_cutting_unit_id
+        and state.processed_segments == reference_state.processed_segments
+        and state.released_part_ids == reference_state.released_part_ids
+        and state.unstable_part_ids == reference_state.unstable_part_ids
+        and tuple(sorted(state.processed_polygon_bounds))
+        == tuple(sorted(reference_state.processed_polygon_bounds))
+    )
+
+
+def evaluate_neighbor_move_metrics(
+    move: NeighborMove,
+    prefix_states: tuple[IncrementalMetricsState, ...],
+    current_metrics: PathMetrics,
+    panel: Panel,
+    tool: ToolConfig,
+    process_model: CuttingProcessModel | None = None,
+) -> PathMetrics:
+    stop_index = min(move.affected_stop_index, len(move.directed_units))
+    state = prefix_states[move.affected_start_index]
+    for candidate in move.directed_units[move.affected_start_index : stop_index]:
+        state = apply_candidate_incremental(
+            candidate,
+            state,
+            panel,
+            tool,
+            process_model=process_model,
+        )
+
+    if stop_index >= len(move.directed_units):
+        return finalize_metrics(state)
+
+    reference_state = prefix_states[stop_index]
+    if _state_rejoins_suffix(state, reference_state):
+        suffix_delta = subtract_metrics(current_metrics, reference_state.metrics)
+        return add_metrics(state.metrics, suffix_delta)
+
+    return evaluate_directed_units_from_prefix(
+        move.directed_units,
+        stop_index,
+        state,
+        panel,
+        tool,
+        process_model=process_model,
+    )
 
 
 def process_metric_key(
@@ -424,11 +486,35 @@ def process_aware_unit_order(
         best_state: IncrementalMetricsState | None = None
         best_key: tuple | None = None
 
-        for candidate in (
+        directed_candidates = tuple(
             directed_candidate
             for unit in candidate_units
             for directed_candidate in directed_candidate_cache[unit.unit_id]
+        )
+        exact_candidate_limit = process_aware_exact_candidate_limit(candidate_pool_size)
+        if (
+            exact_candidate_limit is not None
+            and not state.unstable_part_ids
+            and len(directed_candidates) > exact_candidate_limit
         ):
+            directed_candidates = tuple(
+                sorted(
+                    directed_candidates,
+                    key=lambda candidate: (
+                        transition_score(
+                            candidate,
+                            current_point=state.current_point,
+                            previous_direction=state.current_direction,
+                            previous_unit=previous_unit,
+                        ),
+                        euclidean_distance(state.current_point, candidate.start),
+                        candidate.unit.unit_id,
+                        candidate.is_reversed,
+                    ),
+                )[:exact_candidate_limit]
+            )
+
+        for candidate in directed_candidates:
             next_state = apply_candidate_incremental(
                 candidate,
                 state,
@@ -1011,7 +1097,13 @@ def swap_neighbor_moves(
                 continue
             candidate = list(directed_units)
             candidate[first], candidate[second] = candidate[second], candidate[first]
-            neighbors.append(NeighborMove(tuple(candidate), first))
+            neighbors.append(
+                NeighborMove(
+                    tuple(candidate),
+                    first,
+                    min(len(directed_units), second + 2),
+                )
+            )
             if _reached_neighbor_limit(neighbors, max_neighbors):
                 return tuple(neighbors)
     return tuple(neighbors)
@@ -1043,7 +1135,15 @@ def relocate_neighbor_moves(
             candidate = list(directed_units)
             item = candidate.pop(source)
             candidate.insert(target, item)
-            neighbors.append(NeighborMove(tuple(candidate), min(source, target)))
+            affected_start = min(source, target)
+            affected_end = max(source, target)
+            neighbors.append(
+                NeighborMove(
+                    tuple(candidate),
+                    affected_start,
+                    min(len(directed_units), affected_end + 2),
+                )
+            )
             if _reached_neighbor_limit(neighbors, max_neighbors):
                 return tuple(neighbors)
     return tuple(neighbors)
@@ -1087,6 +1187,7 @@ def two_opt_neighbor_moves(
                     + tuple(reversed_block)
                     + directed_units[end + 1 :],
                     start,
+                    min(len(directed_units), end + 2),
                 )
             )
             if _reached_neighbor_limit(neighbors, max_neighbors):
@@ -1179,19 +1280,22 @@ def improve_directed_unit_order(
         )
         best_neighbor = current
         best_metrics = current_metrics
+        best_key = process_metric_key(current_metrics)
 
         for move in local_neighbor_moves(current, config):
-            neighbor_metrics = evaluate_directed_units_from_prefix(
-                move.directed_units,
-                move.affected_start_index,
-                prefix_states[move.affected_start_index],
+            neighbor_metrics = evaluate_neighbor_move_metrics(
+                move,
+                prefix_states,
+                current_metrics,
                 panel,
                 tool,
                 process_model=process_model,
             )
-            if metrics_better(neighbor_metrics, best_metrics):
+            neighbor_key = process_metric_key(neighbor_metrics)
+            if neighbor_key < best_key:
                 best_neighbor = move.directed_units
                 best_metrics = neighbor_metrics
+                best_key = neighbor_key
                 if config.first_improvement:
                     break
 
@@ -1254,10 +1358,10 @@ def improve_directed_unit_order_by_path_distance(
         best_key = path_distance_metric_key(current_metrics)
 
         for move in local_neighbor_moves(current, config):
-            neighbor_metrics = evaluate_directed_units_from_prefix(
-                move.directed_units,
-                move.affected_start_index,
-                prefix_states[move.affected_start_index],
+            neighbor_metrics = evaluate_neighbor_move_metrics(
+                move,
+                prefix_states,
+                current_metrics,
                 panel,
                 tool,
                 process_model=process_model,
@@ -1346,4 +1450,210 @@ def topology_local_search_order(
         tool,
         config=config,
         process_model=process_model,
+    )
+
+
+def _unit_midpoint(unit: CuttingUnit) -> tuple[float, float]:
+    return ((unit.start.x + unit.end.x) / 2.0, (unit.start.y + unit.end.y) / 2.0)
+
+
+def _direct_units_in_sequence(
+    units: tuple[CuttingUnit, ...],
+    start_point: Point,
+) -> tuple[DirectedUnitCandidate, ...]:
+    directed_candidate_cache = {
+        unit.unit_id: directed_unit_candidates(unit)
+        for unit in units
+    }
+    current_point = start_point
+    ordered: list[DirectedUnitCandidate] = []
+    for unit in units:
+        best = min(
+            directed_candidate_cache[unit.unit_id],
+            key=lambda candidate: (
+                euclidean_distance(current_point, candidate.start),
+                candidate.unit.unit_id,
+                candidate.is_reversed,
+            ),
+        )
+        ordered.append(best)
+        current_point = best.end
+    return tuple(ordered)
+
+
+def sweep_unit_order(
+    units: tuple[CuttingUnit, ...],
+    start_point: Point,
+    primary_axis: str = "x",
+    reverse: bool = False,
+) -> tuple[DirectedUnitCandidate, ...]:
+    """Build a deterministic row/column sweep order used as a strong baseline seed."""
+
+    if primary_axis not in {"x", "y"}:
+        raise ValueError("primary_axis must be 'x' or 'y'")
+
+    def key(unit: CuttingUnit) -> tuple[float, float, int, str]:
+        mid_x, mid_y = _unit_midpoint(unit)
+        if primary_axis == "x":
+            return (mid_x, mid_y, -len(unit.covered_segment_ids), unit.unit_id)
+        return (mid_y, mid_x, -len(unit.covered_segment_ids), unit.unit_id)
+
+    ordered_units = tuple(sorted(units, key=key, reverse=reverse))
+    return _direct_units_in_sequence(ordered_units, start_point)
+
+
+def _order_signature(
+    directed_units: tuple[DirectedUnitCandidate, ...],
+) -> tuple[tuple[str, bool], ...]:
+    return tuple(
+        (candidate.unit.unit_id, candidate.is_reversed)
+        for candidate in directed_units
+    )
+
+
+def multistart_process_initial_orders(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    config: LocalSearchConfig,
+    process_model: CuttingProcessModel | None = None,
+) -> tuple[tuple[DirectedUnitCandidate, ...], ...]:
+    """Construct literature-style deterministic seeds for process local search."""
+
+    initial_orders: list[tuple[DirectedUnitCandidate, ...]] = [
+        nearest_neighbor_unit_order(units, tool.start_point),
+        topology_aware_unit_order(
+            units,
+            start_point=tool.start_point,
+            candidate_pool_size=config.topology_candidate_pool_size,
+        ),
+        sweep_unit_order(units, tool.start_point, primary_axis="x"),
+        sweep_unit_order(units, tool.start_point, primary_axis="y"),
+        sweep_unit_order(units, tool.start_point, primary_axis="x", reverse=True),
+        sweep_unit_order(units, tool.start_point, primary_axis="y", reverse=True),
+    ]
+    if process_model is not None:
+        initial_orders.append(
+            process_aware_unit_order(
+                units,
+                panel=panel,
+                tool=tool,
+                process_model=process_model,
+                candidate_pool_size=config.topology_candidate_pool_size,
+            )
+        )
+
+    unique_orders: list[tuple[DirectedUnitCandidate, ...]] = []
+    seen: set[tuple[tuple[str, bool], ...]] = set()
+    for order in initial_orders:
+        signature = _order_signature(order)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique_orders.append(order)
+    return tuple(unique_orders)
+
+
+def process_local_search_multistart_order(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    config: LocalSearchConfig | None = None,
+    process_model: CuttingProcessModel | None = None,
+) -> LocalSearchResult:
+    """Strong process-aware local-search baseline from multiple deterministic seeds."""
+
+    if config is None:
+        config = LocalSearchConfig()
+
+    best_result: LocalSearchResult | None = None
+    total_iterations = 0
+    any_improved = False
+    for initial_order in multistart_process_initial_orders(
+        units,
+        panel=panel,
+        tool=tool,
+        config=config,
+        process_model=process_model,
+    ):
+        result = improve_directed_unit_order(
+            initial_order,
+            panel,
+            tool,
+            config=config,
+            process_model=process_model,
+        )
+        total_iterations += result.iterations
+        any_improved = any_improved or result.improved
+        if best_result is None or (
+            process_metric_key(result.metrics),
+            _order_signature(result.directed_units),
+        ) < (
+            process_metric_key(best_result.metrics),
+            _order_signature(best_result.directed_units),
+        ):
+            best_result = result
+
+    if best_result is None:
+        actions: tuple[CuttingAction, ...] = ()
+        return LocalSearchResult(
+            directed_units=(),
+            actions=actions,
+            metrics=evaluate_actions(actions, panel, tool, process_model=process_model),
+            iterations=0,
+            improved=False,
+        )
+
+    return LocalSearchResult(
+        directed_units=best_result.directed_units,
+        actions=best_result.actions,
+        metrics=best_result.metrics,
+        iterations=total_iterations,
+        improved=any_improved,
+    )
+
+
+def process_aware_beam_polished_search_order(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    process_model: CuttingProcessModel | None = None,
+    beam_config: BeamSearchConfig | None = None,
+    polish_config: LocalSearchConfig | None = None,
+) -> BeamSearchResult:
+    """Run process-aware beam search and polish the result with process local search."""
+
+    beam_result = process_aware_beam_search_order(
+        units,
+        panel,
+        tool,
+        process_model=process_model,
+        config=beam_config,
+    )
+    if not beam_result.directed_units:
+        return beam_result
+    if polish_config is None:
+        polish_config = LocalSearchConfig(
+            max_iterations=2,
+            first_improvement=True,
+            max_swap_span=6,
+            max_relocate_span=6,
+            max_two_opt_span=6,
+            max_neighbors_per_iteration=160,
+            process_aware_initial_order=True,
+        )
+
+    polished = improve_directed_unit_order(
+        beam_result.directed_units,
+        panel,
+        tool,
+        config=polish_config,
+        process_model=process_model,
+    )
+    return BeamSearchResult(
+        directed_units=polished.directed_units,
+        actions=polished.actions,
+        metrics=polished.metrics,
+        expanded_nodes=beam_result.expanded_nodes,
+        diagnostics=beam_result.diagnostics,
     )

@@ -21,6 +21,7 @@ from .models import (
 
 
 MAX_DETOUR_OBSTACLES = 64
+MAX_DETOUR_GRID_NODES = 16384
 DETOUR_EPSILON = 1e-6
 DETOUR_CACHE_MAX_SIZE = 20000
 
@@ -241,90 +242,154 @@ def _compute_low_clearance_detour_points(
             if y_min <= y <= y_max:
                 ys.add(y)
 
-    nodes: set[Point] = set()
-    sorted_xs = sorted(xs)
-    for y in sorted(ys):
-        row_obstacle_bounds = _horizontal_relevant_obstacle_bounds(
+    sorted_xs = sorted(x for x in xs if x_min <= x <= x_max)
+    sorted_ys = sorted(y for y in ys if y_min <= y <= y_max)
+    if len(sorted_xs) * len(sorted_ys) > MAX_DETOUR_GRID_NODES:
+        return None
+
+    points: list[Point] = []
+    row_nodes: dict[float, list[int]] = {}
+    column_nodes: dict[float, list[int]] = defaultdict(list)
+    horizontal_intervals_by_y: dict[float, tuple[tuple[float, float], ...]] = {}
+    rows_needing_sort: set[float] = set()
+    columns_needing_sort: set[float] = set()
+    for y in sorted_ys:
+        intervals = _horizontal_blocking_intervals(
             y,
             obstacle_bounds,
         )
+        horizontal_intervals_by_y[y] = intervals
+        row: list[Point] = []
+        interval_count = len(intervals)
+        interval_index = 0
         for x in sorted_xs:
-            point = Point(x, y)
-            if _point_valid_for_low_clearance_row(
-                point,
-                row_obstacle_bounds,
-                panel,
-                margin,
+            while (
+                interval_index < interval_count
+                and intervals[interval_index][1] <= x + 1e-9
             ):
-                nodes.add(point)
-    nodes.add(start)
-    nodes.add(end)
+                interval_index += 1
+            if (
+                interval_index < interval_count
+                and intervals[interval_index][0] + 1e-9 < x < intervals[interval_index][1] - 1e-9
+            ):
+                continue
+            point = Point(x, y)
+            point_id = len(points)
+            points.append(point)
+            row.append(point_id)
+            column_nodes[x].append(point_id)
+        row_nodes[y] = row
 
-    row_nodes: dict[float, list[Point]] = defaultdict(list)
-    column_nodes: dict[float, list[Point]] = defaultdict(list)
-    for node in nodes:
-        row_nodes[node.y].append(node)
-        column_nodes[node.x].append(node)
-
-    adjacency: dict[Point, list[tuple[float, Point]]] = defaultdict(list)
-    for row in row_nodes.values():
-        row.sort(key=lambda point: point.x)
-        _connect_visible_neighbors(row, adjacency, obstacle_bounds, panel, margin)
-    for column in column_nodes.values():
-        column.sort(key=lambda point: point.y)
-        _connect_visible_neighbors(column, adjacency, obstacle_bounds, panel, margin)
-
-    return _shortest_point_path(start, end, adjacency)
-
-
-def _connect_visible_neighbors(
-    ordered_nodes: list[Point],
-    adjacency: dict[Point, list[tuple[float, Point]]],
-    obstacle_bounds: tuple[tuple[float, float, float, float], ...],
-    panel: Panel,
-    margin: float,
-) -> None:
-    relevant_obstacle_bounds = _axis_relevant_obstacle_bounds(
-        ordered_nodes,
-        obstacle_bounds,
-    )
-    for first, second in zip(ordered_nodes, ordered_nodes[1:]):
-        if not _low_clearance_segment_clear_between_valid_points(
-            first,
-            second,
-            relevant_obstacle_bounds,
-            panel,
+    start_node_id: int | None = None
+    end_node_id: int | None = None
+    for endpoint in (start, end):
+        if not point_inside_panel_work_area(
+            endpoint,
+            panel.panel_width,
+            panel.panel_height,
             margin,
         ):
             continue
-        distance = euclidean_distance(first, second)
-        adjacency[first].append((distance, second))
-        adjacency[second].append((distance, first))
-
-
-def _axis_relevant_obstacle_bounds(
-    ordered_nodes: list[Point],
-    obstacle_bounds: tuple[tuple[float, float, float, float], ...],
-    tolerance: float = 1e-9,
-) -> tuple[tuple[float, float, float, float], ...]:
-    if len(ordered_nodes) < 2 or not obstacle_bounds:
-        return obstacle_bounds
-
-    first = ordered_nodes[0]
-    last = ordered_nodes[-1]
-    if abs(first.y - last.y) <= tolerance:
-        return _horizontal_relevant_obstacle_bounds(
-            first.y,
-            obstacle_bounds,
-            tolerance=tolerance,
+        row = row_nodes.setdefault(endpoint.y, [])
+        existing_id = next(
+            (node_id for node_id in row if points[node_id].x == endpoint.x),
+            None,
         )
-    if abs(first.x - last.x) <= tolerance:
-        return _vertical_relevant_obstacle_bounds(
-            first.x,
-            obstacle_bounds,
-            tolerance=tolerance,
+        if existing_id is None:
+            existing_id = len(points)
+            points.append(endpoint)
+            row.append(existing_id)
+            column_nodes[endpoint.x].append(existing_id)
+            rows_needing_sort.add(endpoint.y)
+            columns_needing_sort.add(endpoint.x)
+            horizontal_intervals_by_y.setdefault(
+                endpoint.y,
+                _horizontal_blocking_intervals(endpoint.y, obstacle_bounds),
+            )
+        if endpoint == start:
+            start_node_id = existing_id
+        if endpoint == end:
+            end_node_id = existing_id
+
+    if start_node_id is None or end_node_id is None:
+        return None
+
+    vertical_intervals_by_x = {
+        x: _vertical_blocking_intervals(x, obstacle_bounds)
+        for x in column_nodes
+    }
+
+    adjacency: list[list[tuple[float, int]]] = [[] for _ in points]
+    for y, row in row_nodes.items():
+        if y in rows_needing_sort:
+            row.sort(key=lambda node_id: points[node_id].x)
+        _connect_horizontal_neighbors(
+            row,
+            points,
+            adjacency,
+            horizontal_intervals_by_y[y],
         )
-    return obstacle_bounds
+    for x, column in column_nodes.items():
+        if x in columns_needing_sort:
+            column.sort(key=lambda node_id: points[node_id].y)
+        _connect_vertical_neighbors(
+            column,
+            points,
+            adjacency,
+            vertical_intervals_by_x[x],
+        )
+
+    return _shortest_point_path(start_node_id, end_node_id, points, adjacency)
+
+
+def _connect_horizontal_neighbors(
+    ordered_nodes: list[int],
+    points: list[Point],
+    adjacency: list[list[tuple[float, int]]],
+    intervals: tuple[tuple[float, float], ...],
+) -> None:
+    interval_count = len(intervals)
+    interval_index = 0
+    for first_id, second_id in zip(ordered_nodes, ordered_nodes[1:]):
+        first = points[first_id]
+        second = points[second_id]
+        lower = first.x
+        upper = second.x
+        while (
+            interval_index < interval_count
+            and intervals[interval_index][1] <= lower + 1e-9
+        ):
+            interval_index += 1
+        if interval_index < interval_count and intervals[interval_index][0] < upper - 1e-9:
+            continue
+        distance = upper - lower
+        adjacency[first_id].append((distance, second_id))
+        adjacency[second_id].append((distance, first_id))
+
+
+def _connect_vertical_neighbors(
+    ordered_nodes: list[int],
+    points: list[Point],
+    adjacency: list[list[tuple[float, int]]],
+    intervals: tuple[tuple[float, float], ...],
+) -> None:
+    interval_count = len(intervals)
+    interval_index = 0
+    for first_id, second_id in zip(ordered_nodes, ordered_nodes[1:]):
+        first = points[first_id]
+        second = points[second_id]
+        lower = first.y
+        upper = second.y
+        while (
+            interval_index < interval_count
+            and intervals[interval_index][1] <= lower + 1e-9
+        ):
+            interval_index += 1
+        if interval_index < interval_count and intervals[interval_index][0] < upper - 1e-9:
+            continue
+        distance = upper - lower
+        adjacency[first_id].append((distance, second_id))
+        adjacency[second_id].append((distance, first_id))
 
 
 def _horizontal_relevant_obstacle_bounds(
@@ -336,6 +401,20 @@ def _horizontal_relevant_obstacle_bounds(
         bounds
         for bounds in obstacle_bounds
         if bounds[1] + tolerance < y < bounds[3] - tolerance
+    )
+
+
+def _horizontal_blocking_intervals(
+    y: float,
+    obstacle_bounds: tuple[tuple[float, float, float, float], ...],
+    tolerance: float = 1e-9,
+) -> tuple[tuple[float, float], ...]:
+    return tuple(
+        sorted(
+            (min_x, max_x)
+            for min_x, min_y, max_x, max_y in obstacle_bounds
+            if min_y + tolerance < y < max_y - tolerance
+        )
     )
 
 
@@ -351,83 +430,74 @@ def _vertical_relevant_obstacle_bounds(
     )
 
 
-def _low_clearance_segment_clear_between_valid_points(
-    start: Point,
-    end: Point,
+def _vertical_blocking_intervals(
+    x: float,
     obstacle_bounds: tuple[tuple[float, float, float, float], ...],
-    panel: Panel,
-    margin: float,
-) -> bool:
-    if not (
-        margin <= start.x <= panel.panel_width - margin
-        and margin <= end.x <= panel.panel_width - margin
-        and margin <= start.y <= panel.panel_height - margin
-        and margin <= end.y <= panel.panel_height - margin
-    ):
-        return False
-    return not any(
-        _segment_crosses_axis_aligned_bounds_interior(start, end, bounds)
-        for bounds in obstacle_bounds
+    tolerance: float = 1e-9,
+) -> tuple[tuple[float, float], ...]:
+    return tuple(
+        sorted(
+            (min_y, max_y)
+            for min_x, min_y, max_x, max_y in obstacle_bounds
+            if min_x + tolerance < x < max_x - tolerance
+        )
     )
 
 
-def _segment_crosses_axis_aligned_bounds_interior(
-    start: Point,
-    end: Point,
-    bounds: tuple[float, float, float, float],
-    tolerance: float = 1e-9,
-) -> bool:
-    min_x, min_y, max_x, max_y = bounds
-    if abs(start.y - end.y) <= tolerance:
-        y = start.y
-        if y <= min_y + tolerance or y >= max_y - tolerance:
-            return False
-        segment_min_x = min(start.x, end.x)
-        segment_max_x = max(start.x, end.x)
-        return max(segment_min_x, min_x) < min(segment_max_x, max_x) - tolerance
-    if abs(start.x - end.x) <= tolerance:
-        x = start.x
-        if x <= min_x + tolerance or x >= max_x - tolerance:
-            return False
-        segment_min_y = min(start.y, end.y)
-        segment_max_y = max(start.y, end.y)
-        return max(segment_min_y, min_y) < min(segment_max_y, max_y) - tolerance
-    return segment_crosses_axis_aligned_rectangle_interior(start, end, bounds)
+def _manhattan_distance(first: Point, second: Point) -> float:
+    return abs(first.x - second.x) + abs(first.y - second.y)
 
 
 def _shortest_point_path(
-    start: Point,
-    end: Point,
-    adjacency: dict[Point, list[tuple[float, Point]]],
+    start_id: int,
+    end_id: int,
+    points: list[Point],
+    adjacency: list[list[tuple[float, int]]],
 ) -> tuple[Point, ...] | None:
-    queue: list[tuple[float, int, Point]] = [(0.0, 0, start)]
-    best_distance = {start: 0.0}
-    previous: dict[Point, Point] = {}
+    start = points[start_id]
+    end = points[end_id]
+    queue: list[tuple[float, float, int, int]] = [
+        (_manhattan_distance(start, end), 0.0, 0, start_id)
+    ]
+    best_distance = [float("inf")] * len(points)
+    best_distance[start_id] = 0.0
+    previous = [-1] * len(points)
     counter = 1
 
     while queue:
-        distance, _, node = heappop(queue)
-        if node == end:
+        _, distance, _, node_id = heappop(queue)
+        if node_id == end_id:
             break
-        if distance > best_distance.get(node, float("inf")) + 1e-9:
+        if distance > best_distance[node_id] + 1e-9:
             continue
-        for edge_distance, neighbor in adjacency.get(node, ()):
+        for edge_distance, neighbor_id in adjacency[node_id]:
             candidate_distance = distance + edge_distance
-            if candidate_distance + 1e-9 >= best_distance.get(neighbor, float("inf")):
+            if candidate_distance + 1e-9 >= best_distance[neighbor_id]:
                 continue
-            best_distance[neighbor] = candidate_distance
-            previous[neighbor] = node
-            heappush(queue, (candidate_distance, counter, neighbor))
+            best_distance[neighbor_id] = candidate_distance
+            previous[neighbor_id] = node_id
+            heappush(
+                queue,
+                (
+                    candidate_distance + _manhattan_distance(points[neighbor_id], end),
+                    candidate_distance,
+                    counter,
+                    neighbor_id,
+                ),
+            )
             counter += 1
 
-    if end not in best_distance:
+    if best_distance[end_id] == float("inf"):
         return None
 
-    path = [end]
-    while path[-1] != start:
-        path.append(previous[path[-1]])
-    path.reverse()
-    return tuple(path)
+    path_ids = [end_id]
+    while path_ids[-1] != start_id:
+        previous_id = previous[path_ids[-1]]
+        if previous_id < 0:
+            return None
+        path_ids.append(previous_id)
+    path_ids.reverse()
+    return tuple(points[node_id] for node_id in path_ids)
 
 
 def _point_valid_for_low_clearance(

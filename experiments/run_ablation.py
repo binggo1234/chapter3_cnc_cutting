@@ -27,6 +27,8 @@ from cnc_cutting.optimizer import (
     plan_greedy_route,
     plan_local_search_route,
     plan_path_distance_local_search_route,
+    plan_process_local_search_multistart_route,
+    plan_process_aware_beam_polished_route,
     plan_process_aware_beam_route,
     plan_topology_route,
 )
@@ -65,12 +67,14 @@ DEFAULT_VARIANTS = (
     "no_stability_guidance",
     "no_adjacency_support_guidance",
     "topology_no_beam",
+    "process_local_search_multistart",
     "path_distance_baseline",
     "no_detour_operator",
     "no_safe_travel_modes",
 )
 VARIANT_CHOICES = DEFAULT_VARIANTS + (
     "greedy_baseline",
+    "process_aware_beam_polished",
     "topology_local_search",
     "topology_local_search_process_aware",
 )
@@ -193,6 +197,10 @@ def ablation_spec(variant: str) -> AblationSpec:
             variant=variant,
             planner_kind="topology_process_aware",
         ),
+        "process_local_search_multistart": AblationSpec(
+            variant=variant,
+            planner_kind="process_local_search_multistart",
+        ),
         "path_distance_baseline": AblationSpec(
             variant=variant,
             planner_kind="path_distance_local_search",
@@ -213,6 +221,10 @@ def ablation_spec(variant: str) -> AblationSpec:
         "greedy_baseline": AblationSpec(
             variant=variant,
             planner_kind="greedy",
+        ),
+        "process_aware_beam_polished": AblationSpec(
+            variant=variant,
+            planner_kind="process_aware_beam_polished",
         ),
         "topology_local_search": AblationSpec(
             variant=variant,
@@ -455,6 +467,14 @@ def build_plan(
             candidate_pool_size=topology_pool_size(size),
             process_aware=True,
         )
+    if spec.planner_kind == "process_local_search_multistart":
+        return plan_process_local_search_multistart_route(
+            units,
+            panel,
+            tool,
+            config=compact_local_search_config(size, True),
+            process_model=process_model,
+        )
     if spec.planner_kind == "topology_local_search":
         return plan_local_search_route(
             units,
@@ -477,6 +497,15 @@ def build_plan(
             panel,
             tool,
             config=compact_beam_search_config(size),
+            process_model=process_model,
+        )
+    if spec.planner_kind == "process_aware_beam_polished":
+        return plan_process_aware_beam_polished_route(
+            units,
+            panel,
+            tool,
+            beam_config=compact_beam_search_config(size),
+            polish_config=compact_local_search_config(size, True),
             process_model=process_model,
         )
     raise ValueError(f"unsupported planner_kind: {spec.planner_kind}")

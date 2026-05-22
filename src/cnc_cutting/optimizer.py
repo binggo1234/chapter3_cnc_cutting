@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from .exact_dp import ExactDPConfig, exact_process_dp_order
 from .geometry import euclidean_distance
 from .local_search import (
     BeamSearchConfig,
     LocalSearchConfig,
+    improve_directed_unit_order,
     path_distance_local_search_order,
+    process_local_search_multistart_order,
     process_aware_beam_search_order,
+    process_aware_beam_polished_search_order,
+    process_metric_key,
     process_aware_unit_order,
     topology_local_search_order,
 )
@@ -32,6 +37,88 @@ class RoutePlan:
     selected_units: tuple[CuttingUnit, ...]
     actions: tuple[CuttingAction, ...]
     metrics: PathMetrics
+
+
+def wider_beam_search_config(config: BeamSearchConfig | None = None) -> BeamSearchConfig:
+    """Return the wider beam setting used for failure-risk fallback cases."""
+
+    if config is None:
+        config = BeamSearchConfig()
+
+    wide_width = config.beam_width + 2
+    candidate_pool_size = (
+        None if config.candidate_pool_size is None else config.candidate_pool_size + 6
+    )
+    max_expansions_per_node = (
+        None
+        if config.max_expansions_per_node is None
+        else config.max_expansions_per_node + 12
+    )
+    max_layer_expansions = (
+        None if config.max_layer_expansions is None else wide_width * 7
+    )
+    return replace(
+        config,
+        beam_width=wide_width,
+        candidate_pool_size=candidate_pool_size,
+        max_expansions_per_node=max_expansions_per_node,
+        max_layer_expansions=max_layer_expansions,
+    )
+
+
+def _best_process_route(plans: tuple[RoutePlan, ...]) -> RoutePlan:
+    return min(plans, key=lambda plan: process_metric_key(plan.metrics))
+
+
+def _beam_fallback_needed(
+    beam_plan: RoutePlan,
+    reference_plan: RoutePlan,
+    margin: float,
+) -> bool:
+    if process_metric_key(beam_plan.metrics) >= process_metric_key(reference_plan.metrics):
+        return True
+    return (beam_plan.metrics.travel_mode_cost - reference_plan.metrics.travel_mode_cost) > -margin
+
+
+def _route_from_search_result(
+    selected_units: tuple[CuttingUnit, ...],
+    result,
+) -> RoutePlan:
+    return RoutePlan(
+        selected_units=selected_units,
+        actions=result.actions,
+        metrics=result.metrics,
+    )
+
+
+def _polish_beam_route(
+    selected_units: tuple[CuttingUnit, ...],
+    beam_result,
+    panel: Panel,
+    tool: ToolConfig,
+    polish_config: LocalSearchConfig | None,
+    process_model: CuttingProcessModel | None,
+) -> RoutePlan:
+    if not beam_result.directed_units:
+        return _route_from_search_result(selected_units, beam_result)
+    if polish_config is None:
+        polish_config = LocalSearchConfig(
+            max_iterations=2,
+            first_improvement=True,
+            max_swap_span=6,
+            max_relocate_span=6,
+            max_two_opt_span=6,
+            max_neighbors_per_iteration=160,
+            process_aware_initial_order=True,
+        )
+    polished = improve_directed_unit_order(
+        beam_result.directed_units,
+        panel,
+        tool,
+        config=polish_config,
+        process_model=process_model,
+    )
+    return _route_from_search_result(selected_units, polished)
 
 
 def _unit_priority(unit: CuttingUnit) -> tuple[int, int, float, str]:
@@ -245,6 +332,52 @@ def plan_path_distance_local_search_route(
     )
 
 
+def plan_process_local_search_multistart_route(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    allow_bridge_cut: bool = False,
+    config: LocalSearchConfig | None = None,
+    process_model: CuttingProcessModel | None = None,
+) -> RoutePlan:
+    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    result = process_local_search_multistart_order(
+        selected_units,
+        panel=panel,
+        tool=tool,
+        config=config,
+        process_model=process_model,
+    )
+    return RoutePlan(
+        selected_units=selected_units,
+        actions=result.actions,
+        metrics=result.metrics,
+    )
+
+
+def plan_exact_process_dp_route(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    allow_bridge_cut: bool = False,
+    config: ExactDPConfig | None = None,
+    process_model: CuttingProcessModel | None = None,
+) -> RoutePlan:
+    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    result = exact_process_dp_order(
+        selected_units,
+        panel=panel,
+        tool=tool,
+        process_model=process_model,
+        config=config,
+    )
+    return RoutePlan(
+        selected_units=selected_units,
+        actions=result.actions,
+        metrics=result.metrics,
+    )
+
+
 def plan_process_aware_beam_route(
     units: tuple[CuttingUnit, ...],
     panel: Panel,
@@ -260,6 +393,152 @@ def plan_process_aware_beam_route(
         tool=tool,
         process_model=process_model,
         config=config,
+    )
+    return RoutePlan(
+        selected_units=selected_units,
+        actions=result.actions,
+        metrics=result.metrics,
+    )
+
+
+def plan_process_aware_beam_adaptive_route(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    allow_bridge_cut: bool = False,
+    beam_config: BeamSearchConfig | None = None,
+    fallback_beam_config: BeamSearchConfig | None = None,
+    topology_candidate_pool_size: int | None = None,
+    fallback_margin: float = 1000.0,
+    process_model: CuttingProcessModel | None = None,
+) -> RoutePlan:
+    """Bounded portfolio planner that expands beam search only on risky cases.
+
+    The topology route is a cheap process-aware reference. The default beam result is
+    accepted when it clearly dominates that reference; otherwise a wider beam is
+    evaluated and the best process-metric route is returned.
+    """
+
+    topology_plan = plan_topology_route(
+        units,
+        panel,
+        tool,
+        allow_bridge_cut=allow_bridge_cut,
+        candidate_pool_size=topology_candidate_pool_size,
+        process_aware=True,
+        process_model=process_model,
+    )
+    beam_plan = plan_process_aware_beam_route(
+        units,
+        panel,
+        tool,
+        allow_bridge_cut=allow_bridge_cut,
+        config=beam_config,
+        process_model=process_model,
+    )
+    candidates = [topology_plan, beam_plan]
+    if _beam_fallback_needed(beam_plan, topology_plan, fallback_margin):
+        candidates.append(
+            plan_process_aware_beam_route(
+                units,
+                panel,
+                tool,
+                allow_bridge_cut=allow_bridge_cut,
+                config=(
+                    fallback_beam_config
+                    if fallback_beam_config is not None
+                    else wider_beam_search_config(beam_config)
+                ),
+                process_model=process_model,
+            )
+        )
+    return _best_process_route(tuple(candidates))
+
+
+def plan_process_aware_beam_adaptive_polished_route(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    allow_bridge_cut: bool = False,
+    beam_config: BeamSearchConfig | None = None,
+    fallback_beam_config: BeamSearchConfig | None = None,
+    polish_config: LocalSearchConfig | None = None,
+    topology_candidate_pool_size: int | None = None,
+    fallback_margin: float = 1000.0,
+    process_model: CuttingProcessModel | None = None,
+) -> RoutePlan:
+    """Adaptive portfolio with process-aware local polishing as a candidate."""
+
+    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    topology_plan = plan_topology_route(
+        units,
+        panel,
+        tool,
+        allow_bridge_cut=allow_bridge_cut,
+        candidate_pool_size=topology_candidate_pool_size,
+        process_aware=True,
+        process_model=process_model,
+    )
+    beam_result = process_aware_beam_search_order(
+        selected_units,
+        panel,
+        tool,
+        process_model=process_model,
+        config=beam_config,
+    )
+    beam_plan = _route_from_search_result(selected_units, beam_result)
+    polished_plan = _polish_beam_route(
+        selected_units,
+        beam_result,
+        panel,
+        tool,
+        polish_config=polish_config,
+        process_model=process_model,
+    )
+    candidates = [topology_plan, beam_plan, polished_plan]
+    current_best = _best_process_route(tuple(candidates))
+    if _beam_fallback_needed(current_best, topology_plan, fallback_margin):
+        fallback_result = process_aware_beam_search_order(
+            selected_units,
+            panel,
+            tool,
+            process_model=process_model,
+            config=(
+                fallback_beam_config
+                if fallback_beam_config is not None
+                else wider_beam_search_config(beam_config)
+            ),
+        )
+        candidates.append(
+            _polish_beam_route(
+                selected_units,
+                fallback_result,
+                panel,
+                tool,
+                polish_config=polish_config,
+                process_model=process_model,
+            )
+        )
+    return _best_process_route(tuple(candidates))
+
+
+def plan_process_aware_beam_polished_route(
+    units: tuple[CuttingUnit, ...],
+    panel: Panel,
+    tool: ToolConfig,
+    allow_bridge_cut: bool = False,
+    beam_config: BeamSearchConfig | None = None,
+    polish_config: LocalSearchConfig | None = None,
+    process_model: CuttingProcessModel | None = None,
+) -> RoutePlan:
+    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    result = process_aware_beam_polished_search_order(
+        selected_units,
+        panel=panel,
+        tool=tool,
+        process_model=process_model,
+        beam_config=beam_config,
+        polish_config=polish_config,
     )
     return RoutePlan(
         selected_units=selected_units,

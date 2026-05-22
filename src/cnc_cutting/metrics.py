@@ -49,6 +49,25 @@ def add_metrics(base: PathMetrics, delta: PathMetrics) -> PathMetrics:
     )
 
 
+def subtract_metrics(total: PathMetrics, base: PathMetrics) -> PathMetrics:
+    return PathMetrics(
+        air_move_distance=total.air_move_distance - base.air_move_distance,
+        cutting_length=total.cutting_length - base.cutting_length,
+        pierce_count=total.pierce_count - base.pierce_count,
+        lift_count=total.lift_count - base.lift_count,
+        turn_penalty=total.turn_penalty - base.turn_penalty,
+        collision_penalty=total.collision_penalty - base.collision_penalty,
+        boundary_penalty=total.boundary_penalty - base.boundary_penalty,
+        stability_penalty=total.stability_penalty - base.stability_penalty,
+        continuity_reward=total.continuity_reward - base.continuity_reward,
+        safe_lift_count=total.safe_lift_count - base.safe_lift_count,
+        safe_lift_distance=total.safe_lift_distance - base.safe_lift_distance,
+        detour_count=total.detour_count - base.detour_count,
+        detour_distance=total.detour_distance - base.detour_distance,
+        travel_mode_cost=total.travel_mode_cost - base.travel_mode_cost,
+    )
+
+
 def turn_penalty(
     previous_direction: tuple[float, float] | None,
     next_direction: tuple[float, float],

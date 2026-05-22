@@ -24,9 +24,14 @@ from cnc_cutting.optimizer import (
     RoutePlan,
     plan_greedy_route,
     plan_path_distance_local_search_route,
+    plan_process_local_search_multistart_route,
+    plan_process_aware_beam_adaptive_route,
+    plan_process_aware_beam_adaptive_polished_route,
+    plan_process_aware_beam_polished_route,
     plan_process_aware_beam_route,
     plan_local_search_route,
     plan_topology_route,
+    wider_beam_search_config,
 )
 from experiment_manifest import default_manifest_path, write_experiment_manifest
 from progress_log import (
@@ -62,7 +67,11 @@ DEFAULT_METHODS = (
     "path_distance_local_search",
     "topology",
     "topology_process_aware",
+    "process_local_search_multistart",
     "process_aware_beam",
+    "process_aware_beam_adaptive",
+    "process_aware_beam_adaptive_polished",
+    "process_aware_beam_polished",
     "topology_local_search",
     "topology_local_search_process_aware",
 )
@@ -345,6 +354,7 @@ def build_planners(
 ) -> tuple[PlannerSpec, ...]:
     pool_size = topology_pool_size(size)
     beam_config = compact_beam_search_config(size)
+    fallback_beam_config = wider_beam_search_config(beam_config)
     planners: dict[str, PlannerSpec] = {
         "greedy": PlannerSpec(
             method="greedy",
@@ -388,6 +398,17 @@ def build_planners(
             ),
             topology_candidate_pool_size=pool_size,
         ),
+        "process_local_search_multistart": PlannerSpec(
+            method="process_local_search_multistart",
+            planner=lambda: plan_process_local_search_multistart_route(
+                units,
+                panel,
+                tool,
+                config=compact_local_search_config(size, True),
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=pool_size,
+        ),
         "process_aware_beam": PlannerSpec(
             method="process_aware_beam",
             planner=lambda: plan_process_aware_beam_route(
@@ -395,6 +416,91 @@ def build_planners(
                 panel,
                 tool,
                 config=beam_config,
+                process_model=process_model,
+            ),
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+        ),
+        "process_aware_beam_adaptive": PlannerSpec(
+            method="process_aware_beam_adaptive",
+            planner=lambda: plan_process_aware_beam_adaptive_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                fallback_beam_config=fallback_beam_config,
+                topology_candidate_pool_size=pool_size,
+                fallback_margin=1000.0,
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=pool_size,
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+        ),
+        "process_aware_beam_adaptive_polished": PlannerSpec(
+            method="process_aware_beam_adaptive_polished",
+            planner=lambda: plan_process_aware_beam_adaptive_polished_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                fallback_beam_config=fallback_beam_config,
+                polish_config=compact_local_search_config(size, True),
+                topology_candidate_pool_size=pool_size,
+                fallback_margin=1000.0,
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=pool_size,
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+        ),
+        "process_aware_beam_polished": PlannerSpec(
+            method="process_aware_beam_polished",
+            planner=lambda: plan_process_aware_beam_polished_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                polish_config=compact_local_search_config(size, True),
                 process_model=process_model,
             ),
             beam_width=beam_config.beam_width,

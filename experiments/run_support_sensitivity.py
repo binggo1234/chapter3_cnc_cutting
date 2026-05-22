@@ -35,7 +35,9 @@ DEFAULT_SENSITIVITY_METHODS = (
     "path_distance_local_search",
     "topology",
     "topology_process_aware",
+    "process_local_search_multistart",
     "process_aware_beam",
+    "process_aware_beam_polished",
     "topology_local_search_process_aware",
 )
 METHOD_LABELS = {
@@ -43,7 +45,9 @@ METHOD_LABELS = {
     "path_distance_local_search": "Path-LS",
     "topology": "Topology",
     "topology_process_aware": "Process-aware",
+    "process_local_search_multistart": "Multi-start process LS",
     "process_aware_beam": "Process-aware beam",
+    "process_aware_beam_polished": "Beam+process LS",
     "topology_local_search": "Topology+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
 }
@@ -52,7 +56,9 @@ METHOD_COLORS = {
     "path_distance_local_search": "#CC79A7",
     "topology": "#0072B2",
     "topology_process_aware": "#D55E00",
+    "process_local_search_multistart": "#8E6C8A",
     "process_aware_beam": "#E69F00",
+    "process_aware_beam_polished": "#A6761D",
     "topology_local_search": "#56B4E9",
     "topology_local_search_process_aware": "#009E73",
 }
@@ -61,7 +67,9 @@ METHOD_MARKERS = {
     "path_distance_local_search": "v",
     "topology": "s",
     "topology_process_aware": "D",
+    "process_local_search_multistart": "h",
     "process_aware_beam": "X",
+    "process_aware_beam_polished": "*",
     "topology_local_search": "^",
     "topology_local_search_process_aware": "P",
 }

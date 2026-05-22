@@ -22,7 +22,11 @@ METHOD_ORDER = (
     "path_distance_local_search",
     "topology",
     "topology_process_aware",
+    "process_local_search_multistart",
     "process_aware_beam",
+    "process_aware_beam_adaptive",
+    "process_aware_beam_adaptive_polished",
+    "process_aware_beam_polished",
     "topology_local_search",
     "topology_local_search_process_aware",
 )
@@ -31,7 +35,11 @@ METHOD_LABELS = {
     "path_distance_local_search": "Path-LS",
     "topology": "Topology",
     "topology_process_aware": "Process-aware",
+    "process_local_search_multistart": "Multi-start process LS",
     "process_aware_beam": "Process-aware beam",
+    "process_aware_beam_adaptive": "Adaptive beam portfolio",
+    "process_aware_beam_adaptive_polished": "Adaptive beam+LS portfolio",
+    "process_aware_beam_polished": "Beam+process LS",
     "topology_local_search": "Topology+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
 }
@@ -40,7 +48,11 @@ METHOD_COLORS = {
     "path_distance_local_search": "#CC79A7",
     "topology": "#2A9D8F",
     "topology_process_aware": "#264653",
+    "process_local_search_multistart": "#8E6C8A",
     "process_aware_beam": "#E69F00",
+    "process_aware_beam_adaptive": "#0072B2",
+    "process_aware_beam_adaptive_polished": "#009E73",
+    "process_aware_beam_polished": "#A6761D",
     "topology_local_search": "#E9C46A",
     "topology_local_search_process_aware": "#E76F51",
 }
@@ -212,7 +224,6 @@ def lower_better_winner(target: ResultRow, baseline: ResultRow) -> str:
         target.number("travel_mode_cost"),
         target.number("detour_distance"),
         target.number("air_move_distance"),
-        target.number("runtime_ms"),
     )
     baseline_key = (
         baseline.number("hard_penalty"),
@@ -222,7 +233,6 @@ def lower_better_winner(target: ResultRow, baseline: ResultRow) -> str:
         baseline.number("travel_mode_cost"),
         baseline.number("detour_distance"),
         baseline.number("air_move_distance"),
-        baseline.number("runtime_ms"),
     )
     if target_key < baseline_key:
         return "target"
@@ -665,7 +675,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--baseline-methods",
         nargs="+",
-        default=("greedy", "path_distance_local_search", "topology_process_aware"),
+        default=(
+            "greedy",
+            "path_distance_local_search",
+            "topology_process_aware",
+            "process_local_search_multistart",
+        ),
     )
     parser.add_argument(
         "--output-dir",

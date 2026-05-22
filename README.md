@@ -125,11 +125,11 @@ PYTHONPATH=src python3 experiments/run_chapter2_batch.py
 ```
 
 该命令默认从每个 zip 抽取 2 个 `placements.csv`，每个文件选 1 张零件数量较多的板，输出 `results/chapter2_batch_routes.csv` 和 `results/chapter2_batch_summary.csv`。
-默认方法包含 `greedy`、`path_distance_local_search`、`topology`、`topology_process_aware`、`process_aware_beam`、`topology_local_search` 和 `topology_local_search_process_aware`。
+默认方法包含 `greedy`、`path_distance_local_search`、`topology`、`topology_process_aware`、`process_local_search_multistart`、`process_aware_beam`、`process_aware_beam_adaptive`、`process_aware_beam_polished`、`process_aware_beam_adaptive_polished`、`topology_local_search` 和 `topology_local_search_process_aware`。
 批量明细 CSV 会记录 `process_aware_beam` 的 beam 参数，并额外输出按零件数量区间聚合的 bin summary，便于做规模分层分析。
 `run_chapter2_batch.py`、`run_ablation.py` 和 `run_scalability.py` 会同步生成 `*_manifest.json`，记录命令行参数、Git commit、输入归档和输出文件元数据。若需要指定 manifest 路径，可使用 `--manifest-output`。
 论文主实验可使用 `--experiment-preset paper-main`，该 preset 默认启用 `all_edges` 支撑模型、`min_support_ratio=0.75` 和 `adjacency_support_weight=1`；显式传入的稳定性参数会覆盖 preset。
-`run_chapter2_batch.py` 和 `run_ablation.py` 会在每个方法/消融变体完成后立即追加写入明细 CSV，并同步生成 `*_progress.csv` 记录 started、completed、skipped 和 timed_out 事件。脚本默认在终端输出任务进度条；如需关闭，可使用 `--no-progress-bar`。若长实验中途终止，可在原命令中加入 `--resume` 继续运行，脚本会读取已有明细行并跳过已完成的 `archive + placements_member + board_id + method/variant + stability 参数` 组合；如需指定进度日志位置，可使用 `--progress-output`。长实验建议额外加入 `--task-timeout-seconds 600`，避免单个异常慢任务阻塞整轮实验。
+`run_chapter2_batch.py`、`run_ablation.py` 和 `run_scalability.py` 会在每个方法/消融变体/规模任务完成后立即追加写入明细 CSV，并同步生成 `*_progress.csv` 记录 started、completed、skipped 和 timed_out 事件。脚本默认在终端输出任务进度条；如需关闭，可使用 `--no-progress-bar`。若长实验中途终止，可在原命令中加入 `--resume` 继续运行，脚本会读取已有明细行并跳过已完成的任务组合；如需指定进度日志位置，可使用 `--progress-output`。长实验建议额外加入 `--task-timeout-seconds 600`，避免单个异常慢任务阻塞整轮实验。
 
 基于真实数据批量结果生成论文图表：
 
@@ -145,12 +145,12 @@ PYTHONPATH=src python3 experiments/generate_chapter2_batch_figures.py
 PYTHONPATH=src:experiments python3 experiments/analyze_results.py --input results/chapter2_batch_expanded_3x3_upto50_multi_unstable_retained.csv --output-dir results/analysis_multi_unstable_retained --figures-dir figures/analysis_multi_unstable_retained
 ```
 
-该脚本会输出 `method_summary.csv`、`paired_comparison.csv`、`paired_summary.csv` 和 `analysis_report.txt`。默认以 `process_aware_beam` 为目标方法，对比 `greedy`、`path_distance_local_search` 和 `topology_process_aware`。
+该脚本会输出 `method_summary.csv`、`paired_comparison.csv`、`paired_summary.csv` 和 `analysis_report.txt`。可通过 `--target-method process_aware_beam_adaptive_polished` 将质量优先的 adaptive beam+LS portfolio 作为目标方法。
 
 对同一真实板件生成多方法路线对照图：
 
 ```bash
-PYTHONPATH=src:experiments python3 experiments/visualize_route_comparison.py --support-policy all_edges --min-support-ratio 0.75 --adjacency-support-weight 1 --methods greedy path_distance_local_search topology_process_aware process_aware_beam --label-parts
+PYTHONPATH=src:experiments python3 experiments/visualize_route_comparison.py --support-policy all_edges --min-support-ratio 0.75 --adjacency-support-weight 1 --methods path_distance_local_search topology_process_aware process_aware_beam process_aware_beam_adaptive_polished --label-parts
 ```
 
 该脚本会输出路线对照图、逐方法路线指标 CSV 和逐动作诊断 CSV。图中区分真实共边、近共边、同线链、单边切割、安全抬刀、低位绕行和稳定性事件，可用于解释算法改进来源。
@@ -171,13 +171,36 @@ PYTHONPATH=src:experiments python3 experiments/generate_ablation_figures.py
 
 输出 `figures/ablation_real_3x3_upto50/fig_ablation_*.*` 和 `results/ablation_real_3x3_upto50_key_table.csv`。
 
+基于当前 77 张真实板材主实验、消融实验和 exact-gap 结果生成论文可用表格与图：
+
+```bash
+scripts/reproduce_chapter3_paper_artifacts.sh artifacts
+```
+
+该命令只读取已有 CSV，输出 `results/paper_artifacts/table_*.csv`、`results/paper_artifacts/table_*.tex` 和 `figures/paper_artifacts/fig_*.*`，其中包含 adaptive portfolio 的来源归因表。 如需从头重跑主实验和消融实验，可使用：
+
+```bash
+scripts/reproduce_chapter3_paper_artifacts.sh full
+```
+
+`full` 模式会带 `--resume` 继续已有结果，并保留进度日志；运行时间明显更长。
+完整重跑还会生成最终主算法的 exact-gap 小规模对比、`fallback_margin` 敏感性结果和 50/75/100 件规模实验，用于支撑 adaptive portfolio 的参数选择。当前最终默认 `fallback_margin=1000`，主实验文件名带 `margin1000_after_runtime_opt`。
+
+单独运行阈值敏感性实验：
+
+```bash
+PYTHONPATH=src:experiments python3 experiments/run_adaptive_margin_sensitivity.py --experiment-preset paper-main --margins 0 250 500 750 1000 1500
+```
+
+输出 `results/adaptive_margin_sensitivity_after_runtime_opt_real_20_50*.csv` 和 `figures/adaptive_margin_sensitivity_after_runtime_opt_real_20_50/fig_adaptive_margin_sensitivity.*`。
+
 自动筛选适合画路线对照图的代表性板件：
 
 ```bash
-PYTHONPATH=src:experiments python3 experiments/select_ablation_cases.py
+PYTHONPATH=src:experiments python3 experiments/select_ablation_cases.py --output results/ablation_representative_cases_after_runtime_opt.csv
 ```
 
-输出 `results/ablation_representative_cases.csv`，其中包含每类消融最有解释力的 `archive`、`placements_member` 和 `board_id`。
+默认读取 `results/analysis_ablation_full_real_20_50/paired_comparison.csv`。当前最终代表性案例输出为 `results/ablation_representative_cases_after_runtime_opt.csv`，其中包含每类消融最有解释力的 `archive`、`placements_member` 和 `board_id`。
 
 对代表性消融案例生成路线对照图：
 

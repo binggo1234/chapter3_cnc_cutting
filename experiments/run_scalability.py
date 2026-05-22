@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Iterator
 
 from cnc_cutting.cutting_units import build_candidate_cutting_units
 from cnc_cutting.layout_generator import (
@@ -21,16 +21,29 @@ from cnc_cutting.optimizer import (
     plan_greedy_route,
     plan_local_search_route,
     plan_path_distance_local_search_route,
+    plan_process_local_search_multistart_route,
+    plan_process_aware_beam_adaptive_polished_route,
+    plan_process_aware_beam_adaptive_route,
+    plan_process_aware_beam_polished_route,
     plan_process_aware_beam_route,
     plan_topology_route,
+    wider_beam_search_config,
 )
 from experiment_manifest import default_manifest_path, write_experiment_manifest
+from progress_log import (
+    append_progress_event,
+    default_progress_log_path,
+    new_progress_event,
+    prepare_progress_log,
+)
+from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
     add_stability_model_args,
     apply_experiment_preset,
     build_process_model_from_args,
 )
+from task_timeout import TaskTimeoutError, task_timeout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +53,11 @@ DEFAULT_METHODS = (
     "path_distance_local_search",
     "topology",
     "topology_process_aware",
+    "process_local_search_multistart",
     "process_aware_beam",
+    "process_aware_beam_adaptive",
+    "process_aware_beam_polished",
+    "process_aware_beam_adaptive_polished",
     "topology_local_search",
 )
 
@@ -300,6 +317,32 @@ def run_size(
     stability_args: argparse.Namespace,
     process_aware_topology: bool = False,
 ) -> tuple[ScalabilityRow, ...]:
+    return tuple(
+        iter_size_rows(
+            size,
+            repeat=repeat,
+            seed=seed,
+            scenario=scenario,
+            methods=methods,
+            stability_args=stability_args,
+            process_aware_topology=process_aware_topology,
+        )
+    )
+
+
+def iter_size_rows(
+    size: int,
+    repeat: int,
+    seed: int,
+    scenario: str,
+    methods: tuple[str, ...],
+    stability_args: argparse.Namespace,
+    process_aware_topology: bool = False,
+    completed_keys: set[tuple[str, ...]] | None = None,
+    progress_output: Path | None = None,
+    task_timeout_seconds: float = 0.0,
+    progress_bar: TerminalProgressBar | None = None,
+) -> Iterator[ScalabilityRow]:
     effective_margin = 8.0
     tool = ToolConfig(
         trim_margin=5,
@@ -323,6 +366,7 @@ def run_size(
     )
     topology_pool_size = topology_candidate_pool_size(size)
     beam_config = beam_search_config_from_args(size, stability_args)
+    fallback_beam_config = wider_beam_search_config(beam_config)
 
     planners: dict[str, PlannerSpec] = {
         "greedy": PlannerSpec(
@@ -368,6 +412,17 @@ def run_size(
             ),
             topology_candidate_pool_size=topology_pool_size,
         ),
+        "process_local_search_multistart": PlannerSpec(
+            method="process_local_search_multistart",
+            planner=lambda: plan_process_local_search_multistart_route(
+                units,
+                panel,
+                tool,
+                config=compact_local_search_config(size, True),
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=topology_pool_size,
+        ),
         "process_aware_beam": PlannerSpec(
             method="process_aware_beam",
             planner=lambda: plan_process_aware_beam_route(
@@ -377,6 +432,103 @@ def run_size(
                 config=beam_config,
                 process_model=process_model,
             ),
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+            beam_completion_aware_prerank=beam_config.completion_aware_prerank,
+            beam_unstable_completion_focus_count=(
+                beam_config.unstable_completion_focus_count
+            ),
+        ),
+        "process_aware_beam_adaptive": PlannerSpec(
+            method="process_aware_beam_adaptive",
+            planner=lambda: plan_process_aware_beam_adaptive_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                fallback_beam_config=fallback_beam_config,
+                topology_candidate_pool_size=topology_pool_size,
+                fallback_margin=1000.0,
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=topology_pool_size,
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+            beam_completion_aware_prerank=beam_config.completion_aware_prerank,
+            beam_unstable_completion_focus_count=(
+                beam_config.unstable_completion_focus_count
+            ),
+        ),
+        "process_aware_beam_polished": PlannerSpec(
+            method="process_aware_beam_polished",
+            planner=lambda: plan_process_aware_beam_polished_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                polish_config=local_config,
+                process_model=process_model,
+            ),
+            beam_width=beam_config.beam_width,
+            beam_candidate_pool_size=beam_config.candidate_pool_size,
+            beam_max_expansions_per_node=beam_config.max_expansions_per_node,
+            beam_max_layer_expansions=beam_config.max_layer_expansions,
+            beam_diversity_bucket_limit=beam_config.diversity_bucket_limit,
+            beam_min_expansions_per_parent=beam_config.min_expansions_per_parent,
+            beam_unstable_min_expansions_per_parent=(
+                beam_config.unstable_min_expansions_per_parent
+            ),
+            beam_unstable_layer_expansion_multiplier=(
+                beam_config.unstable_layer_expansion_multiplier
+            ),
+            beam_unstable_layer_expansion_bonus=(
+                beam_config.unstable_layer_expansion_bonus
+            ),
+            beam_completion_aware_prerank=beam_config.completion_aware_prerank,
+            beam_unstable_completion_focus_count=(
+                beam_config.unstable_completion_focus_count
+            ),
+        ),
+        "process_aware_beam_adaptive_polished": PlannerSpec(
+            method="process_aware_beam_adaptive_polished",
+            planner=lambda: plan_process_aware_beam_adaptive_polished_route(
+                units,
+                panel,
+                tool,
+                beam_config=beam_config,
+                fallback_beam_config=fallback_beam_config,
+                polish_config=local_config,
+                topology_candidate_pool_size=topology_pool_size,
+                fallback_margin=1000.0,
+                process_model=process_model,
+            ),
+            topology_candidate_pool_size=topology_pool_size,
             beam_width=beam_config.beam_width,
             beam_candidate_pool_size=beam_config.candidate_pool_size,
             beam_max_expansions_per_node=beam_config.max_expansions_per_node,
@@ -408,17 +560,122 @@ def run_size(
             ),
         ),
     }
-    return tuple(
-        run_method(
+    for method in methods:
+        spec = planners[method]
+        key = scalability_key_from_parts(
             scenario,
-            planners[method],
-            layout=layout,
-            candidate_unit_count=len(units),
-            repeat=repeat,
-            stability_args=stability_args,
+            size,
+            repeat,
+            spec.method,
+            stability_args,
         )
-        for method in methods
-    )
+        if completed_keys is not None and key in completed_keys:
+            if progress_output is not None:
+                append_progress_event(
+                    progress_output,
+                    new_progress_event(
+                        event="skipped",
+                        archive=f"synthetic:{scenario}",
+                        placements_member=f"repeat:{repeat}",
+                        board_id=str(size),
+                        method=spec.method,
+                        rectangle_count=len(layout.rectangles),
+                        candidate_unit_count=len(units),
+                        message="completed row already present in output CSV",
+                    ),
+                )
+            print(
+                f"skip completed: scenario={scenario} size={size} "
+                f"repeat={repeat} method={spec.method}"
+            )
+            if progress_bar is not None:
+                progress_bar.advance(
+                    "skipped",
+                    f"{scenario} n={size} r={repeat} {spec.method}",
+                )
+            continue
+
+        if progress_output is not None:
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="started",
+                    archive=f"synthetic:{scenario}",
+                    placements_member=f"repeat:{repeat}",
+                    board_id=str(size),
+                    method=spec.method,
+                    rectangle_count=len(layout.rectangles),
+                    candidate_unit_count=len(units),
+                ),
+            )
+        print(
+            f"run: scenario={scenario} size={size} repeat={repeat} "
+            f"method={spec.method} units={len(units)}"
+        )
+        task_start = perf_counter()
+        try:
+            with task_timeout(task_timeout_seconds):
+                row = run_method(
+                    scenario,
+                    spec,
+                    layout=layout,
+                    candidate_unit_count=len(units),
+                    repeat=repeat,
+                    stability_args=stability_args,
+                )
+        except TaskTimeoutError:
+            elapsed_ms = (perf_counter() - task_start) * 1000.0
+            if progress_output is not None:
+                append_progress_event(
+                    progress_output,
+                    new_progress_event(
+                        event="timed_out",
+                        archive=f"synthetic:{scenario}",
+                        placements_member=f"repeat:{repeat}",
+                        board_id=str(size),
+                        method=spec.method,
+                        rectangle_count=len(layout.rectangles),
+                        candidate_unit_count=len(units),
+                        elapsed_ms=elapsed_ms,
+                        message=f"timeout after {task_timeout_seconds:g} seconds",
+                    ),
+                )
+            print(
+                f"timed out: scenario={scenario} size={size} repeat={repeat} "
+                f"method={spec.method} elapsed={elapsed_ms:.3f} ms "
+                f"limit={task_timeout_seconds:g} s"
+            )
+            if progress_bar is not None:
+                progress_bar.advance(
+                    "timed_out",
+                    f"{scenario} n={size} r={repeat} {spec.method}",
+                )
+            continue
+
+        if progress_output is not None:
+            append_progress_event(
+                progress_output,
+                new_progress_event(
+                    event="completed",
+                    archive=f"synthetic:{scenario}",
+                    placements_member=f"repeat:{repeat}",
+                    board_id=str(size),
+                    method=spec.method,
+                    rectangle_count=row.rectangle_count,
+                    candidate_unit_count=row.candidate_unit_count,
+                    elapsed_ms=row.runtime_ms,
+                ),
+            )
+        print(
+            f"done: scenario={scenario} size={size} repeat={repeat} "
+            f"method={spec.method} runtime={row.runtime_ms:.3f} ms"
+        )
+        if progress_bar is not None:
+            progress_bar.advance(
+                "completed",
+                f"{scenario} n={size} r={repeat} {spec.method}",
+            )
+        yield row
 
 
 def write_rows(rows: tuple[ScalabilityRow, ...], output_path: Path) -> None:
@@ -428,6 +685,163 @@ def write_rows(rows: tuple[ScalabilityRow, ...], output_path: Path) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(asdict(row))
+
+
+def append_rows(rows: tuple[ScalabilityRow, ...], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not output_path.exists() or output_path.stat().st_size == 0
+    with output_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(asdict(rows[0]).keys()))
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def prepare_stream_output(output_path: Path, resume: bool) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume:
+        output_path.write_text("", encoding="utf-8")
+
+
+def load_existing_rows(output_path: Path) -> tuple[ScalabilityRow, ...]:
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return ()
+    with output_path.open(newline="", encoding="utf-8") as handle:
+        return tuple(scalability_row_from_dict(row) for row in csv.DictReader(handle))
+
+
+def scalability_row_from_dict(raw: dict[str, str]) -> ScalabilityRow:
+    return ScalabilityRow(
+        **{
+            field.name: coerce_scalability_value(field.name, raw.get(field.name, ""))
+            for field in fields(ScalabilityRow)
+        }
+    )
+
+
+def coerce_scalability_value(name: str, value: str):
+    if value == "":
+        return None
+    if name in SCALABILITY_BOOL_FIELDS:
+        return value in {"True", "true", "1"}
+    if name in SCALABILITY_INT_FIELDS:
+        return int(value)
+    if name in SCALABILITY_FLOAT_FIELDS:
+        return float(value)
+    return value
+
+
+SCALABILITY_BOOL_FIELDS = {"beam_completion_aware_prerank"}
+SCALABILITY_INT_FIELDS = {
+    "size",
+    "repeat",
+    "min_support_count",
+    "topology_candidate_pool_size",
+    "beam_width",
+    "beam_candidate_pool_size",
+    "beam_max_expansions_per_node",
+    "beam_max_layer_expansions",
+    "beam_diversity_bucket_limit",
+    "beam_min_expansions_per_parent",
+    "beam_unstable_min_expansions_per_parent",
+    "beam_unstable_layer_expansion_bonus",
+    "beam_unstable_completion_focus_count",
+    "rectangle_count",
+    "candidate_unit_count",
+    "selected_unit_count",
+    "action_count",
+    "pierce_count",
+    "lift_count",
+    "safe_lift_count",
+    "detour_count",
+}
+SCALABILITY_FLOAT_FIELDS = {
+    "min_support_ratio",
+    "min_area_normalized_support",
+    "adjacency_support_weight",
+    "beam_unstable_layer_expansion_multiplier",
+    "runtime_ms",
+    "air_move_distance",
+    "cutting_length",
+    "safe_lift_distance",
+    "detour_distance",
+    "travel_mode_cost",
+    "stability_penalty",
+    "hard_penalty",
+}
+
+
+def scalability_key(row: ScalabilityRow) -> tuple[str, ...]:
+    return (
+        row.scenario,
+        str(row.size),
+        str(row.repeat),
+        row.method,
+        row.support_policy,
+        str(row.min_support_count),
+        f"{row.min_support_ratio:.12g}",
+        f"{row.min_area_normalized_support:.12g}",
+        f"{row.adjacency_support_weight:.12g}",
+        str(row.beam_width),
+        str(row.beam_candidate_pool_size),
+        str(row.beam_max_expansions_per_node),
+        str(row.beam_max_layer_expansions),
+        str(row.beam_diversity_bucket_limit),
+        str(row.beam_min_expansions_per_parent),
+        str(row.beam_unstable_min_expansions_per_parent),
+        f"{row.beam_unstable_layer_expansion_multiplier}",
+        str(row.beam_unstable_layer_expansion_bonus),
+        str(row.beam_completion_aware_prerank),
+        str(row.beam_unstable_completion_focus_count),
+    )
+
+
+def scalability_key_from_parts(
+    scenario: str,
+    size: int,
+    repeat: int,
+    method: str,
+    args: argparse.Namespace,
+) -> tuple[str, ...]:
+    config = beam_search_config_from_args(size, args)
+    beam_methods = {
+        "process_aware_beam",
+        "process_aware_beam_adaptive",
+        "process_aware_beam_polished",
+        "process_aware_beam_adaptive_polished",
+    }
+    has_beam_fields = method in beam_methods
+    return (
+        scenario,
+        str(size),
+        str(repeat),
+        method,
+        args.support_policy,
+        str(args.min_support_count),
+        f"{args.min_support_ratio:.12g}",
+        f"{args.min_area_normalized_support:.12g}",
+        f"{args.adjacency_support_weight:.12g}",
+        str(config.beam_width if has_beam_fields else None),
+        str(config.candidate_pool_size if has_beam_fields else None),
+        str(config.max_expansions_per_node if has_beam_fields else None),
+        str(config.max_layer_expansions if has_beam_fields else None),
+        str(config.diversity_bucket_limit if has_beam_fields else None),
+        str(config.min_expansions_per_parent if has_beam_fields else None),
+        str(config.unstable_min_expansions_per_parent if has_beam_fields else None),
+        f"{config.unstable_layer_expansion_multiplier if has_beam_fields else None}",
+        str(config.unstable_layer_expansion_bonus if has_beam_fields else None),
+        str(config.completion_aware_prerank if has_beam_fields else None),
+        str(config.unstable_completion_focus_count if has_beam_fields else None),
+    )
+
+
+def count_planned_method_tasks(
+    sizes: tuple[int, ...],
+    repeats: int,
+    methods: tuple[str, ...],
+) -> int:
+    return max(repeats, 0) * len(sizes) * len(methods)
 
 
 def parse_args() -> argparse.Namespace:
@@ -464,6 +878,23 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results" / "scalability_results.csv",
     )
     parser.add_argument("--manifest-output", type=Path, default=None)
+    parser.add_argument("--progress-output", type=Path, default=None)
+    parser.add_argument(
+        "--task-timeout-seconds",
+        type=float,
+        default=0.0,
+        help="Skip one scalability method run if it exceeds this many seconds; 0 disables timeout.",
+    )
+    parser.add_argument(
+        "--no-progress-bar",
+        action="store_true",
+        help="Disable terminal progress bar output.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append to the output CSV and skip rows already present in it.",
+    )
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
     args = parser.parse_args()
@@ -472,37 +903,61 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    rows: list[ScalabilityRow] = []
-    for repeat in range(args.repeats):
-        for size in args.sizes:
-            rows.extend(
-                run_size(
-                    size,
-                    repeat=repeat,
-                    seed=args.seed,
-                    scenario=args.scenario,
-                    methods=tuple(args.methods),
-                    stability_args=args,
-                    process_aware_topology=args.process_aware_topology,
-                )
-            )
+    methods = tuple(args.methods)
+    sizes = tuple(args.sizes)
+    progress_output = args.progress_output or default_progress_log_path(args.output)
+    args.progress_output = progress_output
+    progress_bar = TerminalProgressBar(
+        count_planned_method_tasks(sizes, args.repeats, methods),
+        enabled=not args.no_progress_bar,
+    )
+    progress_bar.start("scalability method tasks")
+    existing_rows = load_existing_rows(args.output) if args.resume else ()
+    completed_keys = {scalability_key(row) for row in existing_rows}
+    prepare_stream_output(args.output, resume=args.resume)
+    prepare_progress_log(progress_output, resume=args.resume)
+    rows: list[ScalabilityRow] = list(existing_rows)
+    if args.resume and existing_rows:
+        print(f"resume: loaded {len(existing_rows)} existing rows from {args.output}")
 
-    write_rows(tuple(rows), args.output)
+    for repeat in range(args.repeats):
+        for size in sizes:
+            for row in iter_size_rows(
+                size,
+                repeat=repeat,
+                seed=args.seed,
+                scenario=args.scenario,
+                methods=methods,
+                stability_args=args,
+                process_aware_topology=args.process_aware_topology,
+                completed_keys=completed_keys,
+                progress_output=progress_output,
+                task_timeout_seconds=args.task_timeout_seconds,
+                progress_bar=progress_bar,
+            ):
+                append_rows((row,), args.output)
+                rows.append(row)
+                completed_keys.add(scalability_key(row))
+
+    if not rows:
+        raise ValueError("no scalability rows produced")
+
     manifest_output = args.manifest_output or default_manifest_path(args.output)
     write_experiment_manifest(
         manifest_output,
         experiment_name="synthetic_scalability",
         args=args,
-        outputs=(args.output,),
+        outputs=(args.output, progress_output),
         root=ROOT,
         extra={
             "row_count": len(rows),
-            "methods": tuple(args.methods),
-            "sizes": tuple(args.sizes),
+            "methods": methods,
+            "sizes": sizes,
             "scenario": args.scenario,
         },
     )
     print(f"wrote: {args.output}")
+    print(f"wrote: {progress_output}")
     print(f"wrote: {manifest_output}")
     for row in rows:
         print(

@@ -202,7 +202,21 @@
 
 当前实现进一步加入了低支撑父前缀保底扩展。与对所有父前缀平均保底不同，默认策略只对 `unstable_part_ids` 非空的父前缀保留额外候选，避免普通低质量前缀被强行保留，同时防止低支撑完成链在层级剪枝中过早消失。
 
-低位绕障模块已进行几何级加速：绕障可见图连接使用轴对齐线段快速判定，水平/垂直候选边按行列预筛相关障碍物，网格节点合法性也按行预筛；绕障缓存对障碍物集合顺序做规范化，并可复用反向路径。该优化不改变目标函数，只降低 beam 前缀评估中的重复几何检测开销。
+低位绕障模块已进行几何级加速：绕障可见图连接使用轴对齐线段快速判定，水平/垂直候选边按行列预筛相关障碍物，网格节点合法性也按行预筛；绕障缓存对障碍物集合顺序做规范化，并可复用反向路径。当前实现进一步把绕障图内部结构改为整数节点邻接表，并将最短路搜索从纯 Dijkstra 改为带曼哈顿启发的 A*。该优化不改变目标函数，只降低 beam 前缀评估中的重复几何检测开销。
+
+强对比实验已补充 `process_local_search_multistart`。该方法从最近邻、拓扑、工艺感知拓扑、横向/纵向 sweep 及其反向 sweep 多个初解出发，使用同一套工艺目标局部搜索，最后取字典序工艺代价最优路径。它用于模拟 VNS/ILS 类强启发式 baseline，避免只与弱贪心或单初解局部搜索对比。
+
+正式数学模型已单独整理到 `docs/formal_model_and_strong_baselines.md`，其中给出了候选切割单元覆盖约束、有向排序变量、空移模式变量、释放件干涉约束、动态支撑稳定性约束、分层目标函数和状态图求解形式。该文件可作为后续 SCI 论文 Problem Definition 与 Methodology 的基础版本。
+
+小规模最优性对照已补充 `src/cnc_cutting/exact_dp.py` 和 `experiments/run_exact_gap.py`。该 DP 只在默认 12 个被选切割单元以内运行，用于报告 beam、多启动局部搜索与 exact 解之间的 gap；超过上限会直接跳过，避免指数枚举拖垮实验。
+
+新增 `process_aware_beam_polished` 和 `process_aware_beam_adaptive_polished` 作为 beam 后处理增强版本：先运行工艺感知前缀束搜索，再以 beam 输出为初解执行工艺目标局部搜索。局部搜索比较口径已统一为 `process_metric_key()`，避免为了减少刀具事件而牺牲显著的加工路径代价。
+
+当前最终主方法为 `process_aware_beam_adaptive_polished`，默认 `fallback_margin = 1000.0`。该方法在 77 张 20-50 件真实板材上完成主实验，输出见 `results/paper_main_margin1000_after_detour_intgraph_real_20_50.csv` 和 `results/analysis_paper_main_margin1000_after_detour_intgraph_real_20_50/`。平均 `travel_mode_cost = 9788.2`，平均 `machining_cost = 29608.6`，平均运行时间约 `462.1 ms`，`hard_penalty = 0`，`stability_penalty = 0`。相对 `topology_process_aware`，平均 `travel_mode_cost` 降低约 `9.74%`；相对 `process_local_search_multistart` 降低约 `9.60%`；相对原 `process_aware_beam` 降低约 `5.55%`。因此论文中应将最终算法写成“工艺感知前缀束搜索 + 局部精修 + 自适应兜底 portfolio”，而不是单一 beam 或单一局部搜索。
+
+最终 portfolio 归因结果见 `results/adaptive_polished_selection_attribution_margin1000_after_detour_intgraph_summary.csv`：`Beam+process LS` 被选中 44 例，占 `57.14%`；`Adaptive beam` 被选中 32 例，占 `41.56%`；`Wide beam+LS fallback` 只触发 1 例，占 `1.30%`。`fallback_margin` 敏感性实验见 `results/adaptive_margin_sensitivity_after_detour_intgraph_real_20_50_summary.csv`，当前选择 `1000.0` 是质量与兜底触发比例之间的折中。
+
+全量消融实验已在同一批 77 张 20-50 件真实板材上完成，输出见 `results/ablation_after_detour_intgraph_real_20_50.csv` 和 `results/analysis_ablation_full_real_20_50/paired_summary.csv`。结果显示：去掉异构切割单元后，`single_edges_only` 虽然平均通行代价更低，但总加工代价比完整方法高约 `27.69%`，证明共边、近共边和同线链单元主要通过减少重复切割贡献收益；去掉稳定性引导或使用纯路径距离局部搜索会得到更短路径，但稳定性惩罚分别上升到 `6.71` 和 `5.09`；去掉邻接支撑引导后，完整方法平均通行代价降低约 `23.94%`，稳定性惩罚也从 `1.09` 降为 `0`；去掉绕行算子后，完整方法平均通行代价降低约 `3.87%`；去掉安全空移模式后，路径会更短但平均硬约束惩罚升至 `1.71`，因此不能作为可行工艺解。
 
 批量实验 CSV 已记录 `process_aware_beam` 的关键参数，包括 `beam_width`、`beam_candidate_pool_size`、`beam_max_expansions_per_node`、`beam_max_layer_expansions`、多样性限制和低支撑父前缀保底参数；同时输出 `rectangle_count_bin` 和按规模区间聚合的 bin summary，便于后续论文实验按零件规模分层报告。
 
@@ -314,3 +328,38 @@
 - 尚未释放的共边相邻零件可提供临时等效支撑长度，并通过 `adjacency_support_weight` 控制贡献强度；
 - 诊断输出已记录稳定性惩罚增量和低支撑零件状态，可用于论文中解释完成链约束的作用机制；
 - 比较路径优劣时，优先级为硬约束、稳定性、刀具事件、空移距离、转角惩罚、连续性奖励。
+
+## 6. 当前最终图表与可复现入口
+
+当前论文表格和总图统一由以下命令生成：
+
+```bash
+PYTHONPATH=src:experiments python3 experiments/generate_paper_artifacts.py
+```
+
+输出目录：
+
+- `results/paper_artifacts/`
+- `figures/paper_artifacts/`
+
+完整重跑入口：
+
+```bash
+scripts/reproduce_chapter3_paper_artifacts.sh full
+```
+
+该脚本会重跑主实验、portfolio 归因、消融实验、exact gap、adaptive margin 敏感性和 50/75/100 件规模实验。若只根据已有 CSV 重建表格和图，运行：
+
+```bash
+scripts/reproduce_chapter3_paper_artifacts.sh artifacts
+```
+
+当前新增代表性路线图：
+
+- `figures/representative_route_cases_after_runtime_opt/main_adaptive_gain.png`：最终 `Adaptive beam+LS` 相对路径基线、工艺拓扑和普通 beam 的代表性收益；
+- `figures/representative_route_cases_after_runtime_opt/shared_unit_ablation.png`：共边/同线切割单元消融；
+- `figures/representative_route_cases_after_runtime_opt/stability_guidance_ablation.png`：稳定性引导消融；
+- `figures/representative_route_cases_after_runtime_opt/adjacency_support_ablation.png`：邻接支撑消融；
+- `figures/representative_route_cases_after_runtime_opt/safe_travel_ablation.png`：安全空移模式消融。
+
+对应 metrics 和逐动作 diagnostics 在 `results/representative_route_cases_after_runtime_opt/`。这些图适合用于论文 Methodology 或 Experiment 的解释性案例，不应替代 77 张板的统计表。

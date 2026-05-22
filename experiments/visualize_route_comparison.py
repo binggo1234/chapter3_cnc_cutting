@@ -35,6 +35,10 @@ from cnc_cutting.optimizer import (
     plan_greedy_route,
     plan_local_search_route,
     plan_path_distance_local_search_route,
+    plan_process_aware_beam_adaptive_polished_route,
+    plan_process_aware_beam_adaptive_route,
+    plan_process_aware_beam_polished_route,
+    plan_process_local_search_multistart_route,
     plan_process_aware_beam_route,
     plan_topology_route,
 )
@@ -50,14 +54,22 @@ DEFAULT_METHODS = (
     "greedy",
     "path_distance_local_search",
     "topology_process_aware",
+    "process_local_search_multistart",
     "process_aware_beam",
+    "process_aware_beam_adaptive",
+    "process_aware_beam_polished",
+    "process_aware_beam_adaptive_polished",
 )
 METHOD_LABELS = {
     "greedy": "Greedy",
     "path_distance_local_search": "Path-LS",
     "topology": "Topology",
     "topology_process_aware": "Process-aware",
+    "process_local_search_multistart": "Multi-start process LS",
     "process_aware_beam": "Process-aware beam",
+    "process_aware_beam_adaptive": "Adaptive beam",
+    "process_aware_beam_polished": "Beam+process LS",
+    "process_aware_beam_adaptive_polished": "Adaptive beam+LS",
     "topology_local_search": "Topology+LS",
     "topology_local_search_process_aware": "Process-aware+LS",
     "full_process_aware_beam": "Full",
@@ -229,12 +241,48 @@ def build_plan(
             candidate_pool_size=topology_pool_size(size),
             process_aware=True,
         )
+    if method == "process_local_search_multistart":
+        return plan_process_local_search_multistart_route(
+            units,
+            panel,
+            tool,
+            config=compact_local_search_config(size, True),
+            process_model=process_model,
+        )
     if method == "process_aware_beam":
         return plan_process_aware_beam_route(
             units,
             panel,
             tool,
             config=compact_beam_search_config(size),
+            process_model=process_model,
+        )
+    if method == "process_aware_beam_adaptive":
+        return plan_process_aware_beam_adaptive_route(
+            units,
+            panel,
+            tool,
+            beam_config=compact_beam_search_config(size),
+            topology_candidate_pool_size=topology_pool_size(size),
+            process_model=process_model,
+        )
+    if method == "process_aware_beam_polished":
+        return plan_process_aware_beam_polished_route(
+            units,
+            panel,
+            tool,
+            beam_config=compact_beam_search_config(size),
+            polish_config=compact_local_search_config(size, True),
+            process_model=process_model,
+        )
+    if method == "process_aware_beam_adaptive_polished":
+        return plan_process_aware_beam_adaptive_polished_route(
+            units,
+            panel,
+            tool,
+            beam_config=compact_beam_search_config(size),
+            polish_config=compact_local_search_config(size, True),
+            topology_candidate_pool_size=topology_pool_size(size),
             process_model=process_model,
         )
     if method == "topology_local_search":
@@ -558,10 +606,14 @@ def parse_args() -> argparse.Namespace:
             "path_distance_local_search",
             "topology",
             "topology_process_aware",
-            "process_aware_beam",
-            "topology_local_search",
-            "topology_local_search_process_aware",
-        ),
+	            "process_local_search_multistart",
+	            "process_aware_beam",
+	            "process_aware_beam_adaptive",
+	            "process_aware_beam_polished",
+	            "process_aware_beam_adaptive_polished",
+	            "topology_local_search",
+	            "topology_local_search_process_aware",
+	        ),
     )
     parser.add_argument("--label-parts", action="store_true")
     parser.add_argument("--label-actions", action="store_true")
