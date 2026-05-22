@@ -39,6 +39,41 @@ class RoutePlan:
     metrics: PathMetrics
 
 
+MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT = 100.0
+
+
+def _tool_event_count(metrics: PathMetrics) -> int:
+    return metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count
+
+
+def _tool_event_increase_justified(
+    candidate: PathMetrics,
+    alternative: PathMetrics,
+) -> bool:
+    extra_events = _tool_event_count(candidate) - _tool_event_count(alternative)
+    if extra_events <= 0:
+        return True
+
+    travel_saving = alternative.travel_mode_cost - candidate.travel_mode_cost
+    machining_saving = alternative.machining_cost - candidate.machining_cost
+    return (
+        machining_saving > 1e-9
+        and travel_saving
+        >= MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT * extra_events
+    )
+
+
+def _route_passes_tool_event_gate(
+    candidate: RoutePlan,
+    alternatives: tuple[RoutePlan, ...],
+) -> bool:
+    return all(
+        _tool_event_increase_justified(candidate.metrics, alternative.metrics)
+        for alternative in alternatives
+        if alternative is not candidate
+    )
+
+
 def wider_beam_search_config(config: BeamSearchConfig | None = None) -> BeamSearchConfig:
     """Return the wider beam setting used for failure-risk fallback cases."""
 
@@ -67,7 +102,15 @@ def wider_beam_search_config(config: BeamSearchConfig | None = None) -> BeamSear
 
 
 def _best_process_route(plans: tuple[RoutePlan, ...]) -> RoutePlan:
-    return min(plans, key=lambda plan: process_metric_key(plan.metrics))
+    if not plans:
+        raise ValueError("at least one route plan is required")
+
+    gated_plans = tuple(
+        plan for plan in plans if _route_passes_tool_event_gate(plan, plans)
+    )
+    if not gated_plans:
+        gated_plans = plans
+    return min(gated_plans, key=lambda plan: process_metric_key(plan.metrics))
 
 
 def _beam_fallback_needed(

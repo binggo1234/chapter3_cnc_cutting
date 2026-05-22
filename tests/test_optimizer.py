@@ -6,11 +6,14 @@ from cnc_cutting.models import (
     EdgeSegment,
     Layout,
     Panel,
+    PathMetrics,
     PlacedRectangle,
     Point,
     ToolConfig,
 )
 from cnc_cutting.optimizer import (
+    RoutePlan,
+    _best_process_route,
     greedy_unit_actions,
     plan_exact_process_dp_route,
     plan_path_distance_local_search_route,
@@ -36,6 +39,82 @@ def _single_unit(unit_id: str, start: Point, end: Point) -> CuttingUnit:
         end=end,
         covered_segment_ids=(segment.segment_id,),
     )
+
+
+def test_best_process_route_rejects_extra_tool_events_for_small_travel_gain() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=100,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=80,
+            pierce_count=3,
+            lift_count=3,
+        ),
+    )
+
+    assert _best_process_route((incumbent, lower_travel_more_events)) is incumbent
+
+
+def test_best_process_route_accepts_extra_tool_events_for_large_travel_gain() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=400,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=150,
+            pierce_count=2,
+            lift_count=2,
+        ),
+    )
+
+    assert _best_process_route((incumbent, lower_travel_more_events)) is (
+        lower_travel_more_events
+    )
+
+
+def test_best_process_route_uses_process_key_when_tool_events_do_not_increase() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=100,
+            travel_mode_cost=100,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_cutting_length = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=90,
+            travel_mode_cost=100,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+
+    assert _best_process_route((incumbent, lower_cutting_length)) is lower_cutting_length
 
 
 def test_select_coverage_units_prefers_near_shared_unit_over_duplicate_edges() -> None:
