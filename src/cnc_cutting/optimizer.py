@@ -40,6 +40,7 @@ class RoutePlan:
 
 
 MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT = 100.0
+MIN_TRAVEL_COST_SAVING_RATIO_PER_EXTRA_TOOL_EVENT = 0.02
 
 
 def _tool_event_count(metrics: PathMetrics) -> int:
@@ -56,10 +57,14 @@ def _tool_event_increase_justified(
 
     travel_saving = alternative.travel_mode_cost - candidate.travel_mode_cost
     machining_saving = alternative.machining_cost - candidate.machining_cost
+    required_saving_per_event = max(
+        MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT,
+        alternative.travel_mode_cost
+        * MIN_TRAVEL_COST_SAVING_RATIO_PER_EXTRA_TOOL_EVENT,
+    )
     return (
         machining_saving > 1e-9
-        and travel_saving
-        >= MIN_TRAVEL_COST_SAVING_PER_EXTRA_TOOL_EVENT * extra_events
+        and travel_saving >= required_saving_per_event * extra_events
     )
 
 
@@ -101,12 +106,18 @@ def wider_beam_search_config(config: BeamSearchConfig | None = None) -> BeamSear
     )
 
 
-def _best_process_route(plans: tuple[RoutePlan, ...]) -> RoutePlan:
+def _best_process_route(
+    plans: tuple[RoutePlan, ...],
+    protected_plans: tuple[RoutePlan, ...] = (),
+) -> RoutePlan:
     if not plans:
         raise ValueError("at least one route plan is required")
 
+    protected_plan_ids = {id(plan) for plan in protected_plans}
     gated_plans = tuple(
-        plan for plan in plans if _route_passes_tool_event_gate(plan, plans)
+        plan
+        for plan in plans
+        if id(plan) in protected_plan_ids or _route_passes_tool_event_gate(plan, plans)
     )
     if not gated_plans:
         gated_plans = plans
@@ -495,7 +506,7 @@ def plan_process_aware_beam_adaptive_route(
                 process_model=process_model,
             )
         )
-    return _best_process_route(tuple(candidates))
+    return _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
 
 
 def plan_process_aware_beam_adaptive_polished_route(
@@ -539,7 +550,7 @@ def plan_process_aware_beam_adaptive_polished_route(
         process_model=process_model,
     )
     candidates = [topology_plan, beam_plan, polished_plan]
-    current_best = _best_process_route(tuple(candidates))
+    current_best = _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
     if _beam_fallback_needed(current_best, topology_plan, fallback_margin):
         fallback_result = process_aware_beam_search_order(
             selected_units,
@@ -562,7 +573,7 @@ def plan_process_aware_beam_adaptive_polished_route(
                 process_model=process_model,
             )
         )
-    return _best_process_route(tuple(candidates))
+    return _best_process_route(tuple(candidates), protected_plans=(beam_plan,))
 
 
 def plan_process_aware_beam_polished_route(

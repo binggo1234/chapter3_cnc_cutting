@@ -91,6 +91,62 @@ def test_best_process_route_accepts_extra_tool_events_for_large_travel_gain() ->
     )
 
 
+def test_best_process_route_rejects_extra_tool_events_below_relative_gain() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=10000,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            travel_mode_cost=9500,
+            pierce_count=2,
+            lift_count=3,
+        ),
+    )
+
+    assert _best_process_route((incumbent, lower_travel_more_events)) is incumbent
+
+
+def test_best_process_route_keeps_protected_plan_even_below_relative_gain() -> None:
+    unit = _single_unit("u1", Point(0, 0), Point(10, 0))
+    incumbent = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=10000,
+            pierce_count=1,
+            lift_count=1,
+        ),
+    )
+    protected_lower_travel_more_events = RoutePlan(
+        selected_units=(unit,),
+        actions=(),
+        metrics=PathMetrics(
+            cutting_length=5000,
+            travel_mode_cost=9500,
+            pierce_count=2,
+            lift_count=3,
+        ),
+    )
+
+    assert (
+        _best_process_route(
+            (incumbent, protected_lower_travel_more_events),
+            protected_plans=(protected_lower_travel_more_events,),
+        )
+        is protected_lower_travel_more_events
+    )
+
+
 def test_best_process_route_uses_process_key_when_tool_events_do_not_increase() -> None:
     unit = _single_unit("u1", Point(0, 0), Point(10, 0))
     incumbent = RoutePlan(
