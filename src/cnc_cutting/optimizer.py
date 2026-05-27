@@ -6,6 +6,7 @@ from .exact_dp import ExactDPConfig, exact_process_dp_order
 from .geometry import euclidean_distance
 from .local_search import (
     BeamSearchConfig,
+    DEFAULT_REPEAT_CUT_POLICY,
     LocalSearchConfig,
     improve_directed_unit_order,
     path_distance_local_search_order,
@@ -15,6 +16,7 @@ from .local_search import (
     process_metric_key,
     process_aware_unit_order,
     topology_local_search_order,
+    validate_repeat_cut_policy,
 )
 from .metrics import evaluate_actions, materialize_action_clearance
 from .models import (
@@ -96,6 +98,43 @@ def _tool_event_increase_justified(
     )
 
 
+def _resolved_repeat_cut_policy(
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
+    *configs,
+) -> str:
+    for config in configs:
+        if config is not None and hasattr(config, "repeat_cut_policy"):
+            return validate_repeat_cut_policy(config.repeat_cut_policy)
+    return validate_repeat_cut_policy(repeat_cut_policy)
+
+
+def _local_search_config_with_policy(
+    config: LocalSearchConfig | None,
+    repeat_cut_policy: str,
+) -> LocalSearchConfig:
+    if config is not None:
+        return config
+    return LocalSearchConfig(repeat_cut_policy=repeat_cut_policy)
+
+
+def _beam_search_config_with_policy(
+    config: BeamSearchConfig | None,
+    repeat_cut_policy: str,
+) -> BeamSearchConfig:
+    if config is not None:
+        return config
+    return BeamSearchConfig(repeat_cut_policy=repeat_cut_policy)
+
+
+def _exact_dp_config_with_policy(
+    config: ExactDPConfig | None,
+    repeat_cut_policy: str,
+) -> ExactDPConfig:
+    if config is not None:
+        return config
+    return ExactDPConfig(repeat_cut_policy=repeat_cut_policy)
+
+
 def _route_passes_tool_event_gate(
     candidate: RoutePlan,
     alternatives: tuple[RoutePlan, ...],
@@ -143,6 +182,7 @@ def _best_process_route(
     plans: tuple[RoutePlan, ...],
     protected_plans: tuple[RoutePlan, ...] = (),
     tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
     if not plans:
         raise ValueError("at least one route plan is required")
@@ -156,15 +196,28 @@ def _best_process_route(
     )
     if not gated_plans:
         gated_plans = plans
-    return min(gated_plans, key=lambda plan: process_metric_key(plan.metrics))
+    return min(
+        gated_plans,
+        key=lambda plan: process_metric_key(
+            plan.metrics,
+            repeat_cut_policy=repeat_cut_policy,
+        ),
+    )
 
 
 def _beam_fallback_needed(
     beam_plan: RoutePlan,
     reference_plan: RoutePlan,
     margin: float,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> bool:
-    if process_metric_key(beam_plan.metrics) >= process_metric_key(reference_plan.metrics):
+    if process_metric_key(
+        beam_plan.metrics,
+        repeat_cut_policy=repeat_cut_policy,
+    ) >= process_metric_key(
+        reference_plan.metrics,
+        repeat_cut_policy=repeat_cut_policy,
+    ):
         return True
     return (beam_plan.metrics.travel_mode_cost - reference_plan.metrics.travel_mode_cost) > -margin
 
@@ -228,18 +281,30 @@ def _unit_priority(unit: CuttingUnit) -> tuple[int, int, float, str]:
 def _dynamic_unit_priority(
     unit: CuttingUnit,
     covered_segment_ids: set[str],
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> tuple[int, float, int, int, float, str]:
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
     unit_segment_ids = set(unit.covered_segment_ids)
     new_segment_ids = unit_segment_ids - covered_segment_ids
     repeated_segment_ids = unit_segment_ids & covered_segment_ids
     static_priority = _unit_priority(unit)
+    repeated_length = sum(
+        segment.length
+        for segment in unit.segments
+        if segment.segment_id in repeated_segment_ids
+    )
+    if repeat_cut_policy == "soft":
+        return (
+            static_priority[0],
+            len(repeated_segment_ids),
+            repeated_length,
+            -len(new_segment_ids),
+            static_priority[2],
+            static_priority[3],
+        )
     return (
         len(repeated_segment_ids),
-        sum(
-            segment.length
-            for segment in unit.segments
-            if segment.segment_id in repeated_segment_ids
-        ),
+        repeated_length,
         -len(new_segment_ids),
         static_priority[0],
         static_priority[2],
@@ -250,7 +315,9 @@ def _dynamic_unit_priority(
 def select_coverage_units(
     units: tuple[CuttingUnit, ...],
     allow_bridge_cut: bool = False,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> tuple[CuttingUnit, ...]:
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
     selected: list[CuttingUnit] = []
     covered_segment_ids: set[str] = set()
     remaining = [
@@ -258,6 +325,15 @@ def select_coverage_units(
         for unit in units
         if allow_bridge_cut or not unit.requires_bridge_cut
     ]
+
+    if repeat_cut_policy == "off":
+        for unit in sorted(remaining, key=_unit_priority):
+            unit_segment_ids = set(unit.covered_segment_ids)
+            if not unit_segment_ids or unit_segment_ids <= covered_segment_ids:
+                continue
+            selected.append(unit)
+            covered_segment_ids.update(unit_segment_ids)
+        return tuple(selected)
 
     while True:
         candidates = [
@@ -269,7 +345,11 @@ def select_coverage_units(
             break
         unit = min(
             candidates,
-            key=lambda candidate: _dynamic_unit_priority(candidate, covered_segment_ids),
+            key=lambda candidate: _dynamic_unit_priority(
+                candidate,
+                covered_segment_ids,
+                repeat_cut_policy=repeat_cut_policy,
+            ),
         )
         selected.append(unit)
         unit_segment_ids = set(unit.covered_segment_ids)
@@ -347,8 +427,14 @@ def plan_greedy_route(
     tool: ToolConfig,
     allow_bridge_cut: bool = False,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     actions = materialize_action_clearance(
         greedy_unit_actions(selected_units, tool.start_point),
         panel,
@@ -371,8 +457,14 @@ def plan_topology_route(
     process_model: CuttingProcessModel | None = None,
     candidate_pool_size: int | None = None,
     process_aware: bool = False,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     if process_model is None or not process_aware:
         actions = topology_aware_unit_actions(
             selected_units,
@@ -388,6 +480,7 @@ def plan_topology_route(
                 tool=tool,
                 process_model=process_model,
                 candidate_pool_size=candidate_pool_size,
+                repeat_cut_policy=repeat_cut_policy,
             ),
             start_point=tool.start_point,
         )
@@ -411,8 +504,15 @@ def plan_local_search_route(
     allow_bridge_cut: bool = False,
     config: LocalSearchConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(repeat_cut_policy, config)
+    config = _local_search_config_with_policy(config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = topology_local_search_order(
         selected_units,
         panel=panel,
@@ -434,8 +534,15 @@ def plan_path_distance_local_search_route(
     allow_bridge_cut: bool = False,
     config: LocalSearchConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(repeat_cut_policy, config)
+    config = _local_search_config_with_policy(config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = path_distance_local_search_order(
         selected_units,
         panel=panel,
@@ -463,8 +570,15 @@ def plan_process_local_search_multistart_route(
     allow_bridge_cut: bool = False,
     config: LocalSearchConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(repeat_cut_policy, config)
+    config = _local_search_config_with_policy(config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = process_local_search_multistart_order(
         selected_units,
         panel=panel,
@@ -486,8 +600,15 @@ def plan_exact_process_dp_route(
     allow_bridge_cut: bool = False,
     config: ExactDPConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(repeat_cut_policy, config)
+    config = _exact_dp_config_with_policy(config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = exact_process_dp_order(
         selected_units,
         panel=panel,
@@ -509,8 +630,15 @@ def plan_process_aware_beam_route(
     allow_bridge_cut: bool = False,
     config: BeamSearchConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(repeat_cut_policy, config)
+    config = _beam_search_config_with_policy(config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = process_aware_beam_search_order(
         selected_units,
         panel=panel,
@@ -536,6 +664,7 @@ def plan_process_aware_beam_adaptive_route(
     fallback_margin: float = 1000.0,
     process_model: CuttingProcessModel | None = None,
     tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
     """Bounded portfolio planner that expands beam search only on risky cases.
 
@@ -543,6 +672,18 @@ def plan_process_aware_beam_adaptive_route(
     accepted when it clearly dominates that reference; otherwise a wider beam is
     evaluated and the best process-metric route is returned.
     """
+
+    repeat_cut_policy = _resolved_repeat_cut_policy(
+        repeat_cut_policy,
+        beam_config,
+        fallback_beam_config,
+    )
+    beam_config = _beam_search_config_with_policy(beam_config, repeat_cut_policy)
+    fallback_beam_config = (
+        fallback_beam_config
+        if fallback_beam_config is not None
+        else wider_beam_search_config(beam_config)
+    )
 
     topology_plan = plan_topology_route(
         units,
@@ -552,6 +693,7 @@ def plan_process_aware_beam_adaptive_route(
         candidate_pool_size=topology_candidate_pool_size,
         process_aware=True,
         process_model=process_model,
+        repeat_cut_policy=repeat_cut_policy,
     )
     beam_plan = plan_process_aware_beam_route(
         units,
@@ -560,27 +702,31 @@ def plan_process_aware_beam_adaptive_route(
         allow_bridge_cut=allow_bridge_cut,
         config=beam_config,
         process_model=process_model,
+        repeat_cut_policy=repeat_cut_policy,
     )
     candidates = [topology_plan, beam_plan]
-    if _beam_fallback_needed(beam_plan, topology_plan, fallback_margin):
+    if _beam_fallback_needed(
+        beam_plan,
+        topology_plan,
+        fallback_margin,
+        repeat_cut_policy=repeat_cut_policy,
+    ):
         candidates.append(
             plan_process_aware_beam_route(
                 units,
                 panel,
                 tool,
                 allow_bridge_cut=allow_bridge_cut,
-                config=(
-                    fallback_beam_config
-                    if fallback_beam_config is not None
-                    else wider_beam_search_config(beam_config)
-                ),
+                config=fallback_beam_config,
                 process_model=process_model,
+                repeat_cut_policy=repeat_cut_policy,
             )
         )
     return _best_process_route(
         tuple(candidates),
         protected_plans=(beam_plan,),
         tool_event_gate=tool_event_gate,
+        repeat_cut_policy=repeat_cut_policy,
     )
 
 
@@ -596,10 +742,28 @@ def plan_process_aware_beam_adaptive_polished_route(
     fallback_margin: float = 1000.0,
     process_model: CuttingProcessModel | None = None,
     tool_event_gate: ToolEventGateConfig = DEFAULT_TOOL_EVENT_GATE_CONFIG,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
     """Adaptive portfolio with process-aware local polishing as a candidate."""
 
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(
+        repeat_cut_policy,
+        beam_config,
+        fallback_beam_config,
+        polish_config,
+    )
+    beam_config = _beam_search_config_with_policy(beam_config, repeat_cut_policy)
+    fallback_beam_config = (
+        fallback_beam_config
+        if fallback_beam_config is not None
+        else wider_beam_search_config(beam_config)
+    )
+    polish_config = _local_search_config_with_policy(polish_config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     topology_plan = plan_topology_route(
         units,
         panel,
@@ -608,6 +772,7 @@ def plan_process_aware_beam_adaptive_polished_route(
         candidate_pool_size=topology_candidate_pool_size,
         process_aware=True,
         process_model=process_model,
+        repeat_cut_policy=repeat_cut_policy,
     )
     beam_result = process_aware_beam_search_order(
         selected_units,
@@ -630,18 +795,20 @@ def plan_process_aware_beam_adaptive_polished_route(
         tuple(candidates),
         protected_plans=(beam_plan,),
         tool_event_gate=tool_event_gate,
+        repeat_cut_policy=repeat_cut_policy,
     )
-    if _beam_fallback_needed(current_best, topology_plan, fallback_margin):
+    if _beam_fallback_needed(
+        current_best,
+        topology_plan,
+        fallback_margin,
+        repeat_cut_policy=repeat_cut_policy,
+    ):
         fallback_result = process_aware_beam_search_order(
             selected_units,
             panel,
             tool,
             process_model=process_model,
-            config=(
-                fallback_beam_config
-                if fallback_beam_config is not None
-                else wider_beam_search_config(beam_config)
-            ),
+            config=fallback_beam_config,
         )
         candidates.append(
             _polish_beam_route(
@@ -657,6 +824,7 @@ def plan_process_aware_beam_adaptive_polished_route(
         tuple(candidates),
         protected_plans=(beam_plan,),
         tool_event_gate=tool_event_gate,
+        repeat_cut_policy=repeat_cut_policy,
     )
 
 
@@ -668,8 +836,20 @@ def plan_process_aware_beam_polished_route(
     beam_config: BeamSearchConfig | None = None,
     polish_config: LocalSearchConfig | None = None,
     process_model: CuttingProcessModel | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> RoutePlan:
-    selected_units = select_coverage_units(units, allow_bridge_cut=allow_bridge_cut)
+    repeat_cut_policy = _resolved_repeat_cut_policy(
+        repeat_cut_policy,
+        beam_config,
+        polish_config,
+    )
+    beam_config = _beam_search_config_with_policy(beam_config, repeat_cut_policy)
+    polish_config = _local_search_config_with_policy(polish_config, repeat_cut_policy)
+    selected_units = select_coverage_units(
+        units,
+        allow_bridge_cut=allow_bridge_cut,
+        repeat_cut_policy=repeat_cut_policy,
+    )
     result = process_aware_beam_polished_search_order(
         selected_units,
         panel=panel,

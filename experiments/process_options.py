@@ -4,6 +4,7 @@ import argparse
 import sys
 from typing import Sequence
 
+from cnc_cutting.local_search import REPEAT_CUT_POLICIES, validate_repeat_cut_policy
 from cnc_cutting.models import CuttingProcessModel, EdgeRole, Layout
 from cnc_cutting.optimizer import DEFAULT_TOOL_EVENT_GATE_CONFIG, ToolEventGateConfig
 from cnc_cutting.process_model import build_process_model
@@ -79,6 +80,19 @@ def add_tool_event_gate_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_repeat_cut_policy_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--repeat-cut-policy",
+        choices=REPEAT_CUT_POLICIES,
+        default="hard",
+        help=(
+            "How repeated cutting is handled by unit selection and process "
+            "ranking: hard prioritizes zero repeats, soft folds repeat length "
+            "into machining cost, off ignores repeat-specific penalties."
+        ),
+    )
+
+
 def apply_experiment_preset(
     args: argparse.Namespace,
     argv: Sequence[str] | None = None,
@@ -94,6 +108,10 @@ def apply_experiment_preset(
         if field not in explicit_fields:
             setattr(args, field, value)
     return args
+
+
+def repeat_cut_policy_from_args(args: argparse.Namespace) -> str:
+    return validate_repeat_cut_policy(getattr(args, "repeat_cut_policy", "hard"))
 
 
 def _explicit_stability_fields(argv: Sequence[str]) -> set[str]:

@@ -154,6 +154,7 @@ def test_batch_row_from_legacy_csv_uses_default_tool_event_gate() -> None:
     assert row.tool_event_gate_enabled is True
     assert row.tool_event_min_travel_saving == 100.0
     assert row.tool_event_min_travel_saving_ratio == 0.02
+    assert row.repeat_cut_policy == "hard"
     assert row.coverage_missing_segment_count == 0
     assert row.cut_repeated_segment_count == 0
     assert row.selected_composite_coverage_ratio == 0.0

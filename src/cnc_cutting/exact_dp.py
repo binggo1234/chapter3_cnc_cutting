@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .local_search import (
+    DEFAULT_REPEAT_CUT_POLICY,
     apply_candidate_incremental,
     process_metric_key,
     process_state_metric_key,
+    validate_repeat_cut_policy,
 )
 from .metrics import evaluate_actions, finalize_metrics, materialize_action_clearance
 from .models import (
@@ -27,6 +29,10 @@ from .topology_operators import (
 @dataclass(frozen=True)
 class ExactDPConfig:
     max_units: int = 12
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY
+
+    def __post_init__(self) -> None:
+        validate_repeat_cut_policy(self.repeat_cut_policy)
 
 
 @dataclass(frozen=True)
@@ -71,9 +77,12 @@ def _sequence_signature(
     return tuple(_candidate_signature(candidate) for candidate in directed_units)
 
 
-def _node_rank(node: ExactDPNode) -> tuple:
+def _node_rank(
+    node: ExactDPNode,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
+) -> tuple:
     return (
-        process_state_metric_key(node.state),
+        process_state_metric_key(node.state, repeat_cut_policy=repeat_cut_policy),
         _sequence_signature(node.directed_units),
     )
 
@@ -148,7 +157,13 @@ def exact_process_dp_order(
                         next_state,
                     )
                     incumbent = next_layers.get(signature)
-                    if incumbent is None or _node_rank(next_node) < _node_rank(incumbent):
+                    if incumbent is None or _node_rank(
+                        next_node,
+                        repeat_cut_policy=config.repeat_cut_policy,
+                    ) < _node_rank(
+                        incumbent,
+                        repeat_cut_policy=config.repeat_cut_policy,
+                    ):
                         next_layers[signature] = next_node
                     expanded_nodes += 1
         retained_state_count += len(next_layers)
@@ -172,7 +187,10 @@ def exact_process_dp_order(
     best = min(
         complete_nodes,
         key=lambda node: (
-            process_metric_key(finalize_metrics(node.state)),
+            process_metric_key(
+                finalize_metrics(node.state),
+                repeat_cut_policy=config.repeat_cut_policy,
+            ),
             _sequence_signature(node.directed_units),
         ),
     )

@@ -237,6 +237,8 @@
 
 主算法最终选择口径对应 `process_metric_key()`；beam 前缀筛选对应 `process_state_metric_key()`。重复切割位于加工总代价之前，表示算法优先避免对已加工原始边段进行再次加工；刀具事件不是简单越少越好，而是在 `process_metric_key()` 中位于 `machining_cost` 之后，并由 event gate 额外限制：非保护候选若增加刀具事件，必须同时给出足够的通行代价收益和加工总代价收益，才能进入最终比较。最终主方法的完整理论表述见 `docs/formal_theory_event_gated_beam_ls.md`。
 
+为标定该约束强度，代码保留 `repeat_cut_policy` 消融开关：`hard` 将重复加工指标置于加工总代价之前；`soft` 将重复长度作为加工代价附加项；`off` 忽略重复加工专项惩罚，用于复现未加入重复加工约束的基线。
+
 ## 6. 状态图求解形式
 
 可将问题写为动态状态图最短路。

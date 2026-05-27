@@ -180,6 +180,36 @@ def test_process_metric_key_penalizes_repeated_cut_before_machining_cost() -> No
     assert process_metric_key(repeat_free) < process_metric_key(repeated_shorter)
 
 
+def test_process_metric_key_can_disable_repeat_cut_priority() -> None:
+    repeat_free = PathMetrics(cutting_length=200, travel_mode_cost=100)
+    repeated_shorter = PathMetrics(
+        cutting_length=120,
+        travel_mode_cost=80,
+        repeated_cut_segment_count=1,
+        repeated_cut_length=20,
+    )
+
+    assert process_metric_key(
+        repeated_shorter,
+        repeat_cut_policy="off",
+    ) < process_metric_key(repeat_free, repeat_cut_policy="off")
+
+
+def test_process_metric_key_soft_policy_uses_repeat_length_as_cost() -> None:
+    repeat_free = PathMetrics(cutting_length=200, travel_mode_cost=100)
+    repeated_shorter = PathMetrics(
+        cutting_length=120,
+        travel_mode_cost=80,
+        repeated_cut_segment_count=1,
+        repeated_cut_length=20,
+    )
+
+    assert process_metric_key(
+        repeated_shorter,
+        repeat_cut_policy="soft",
+    ) < process_metric_key(repeat_free, repeat_cut_policy="soft")
+
+
 def test_exact_process_dp_matches_bruteforce_process_metric() -> None:
     units = (
         _candidate("near_start", Point(0, 0), Point(10, 0)).unit,

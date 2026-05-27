@@ -326,6 +326,82 @@ def test_select_coverage_units_avoids_partial_overlap_when_single_edge_can_cover
     assert "chain:B:C" not in selected_ids
 
 
+def test_select_coverage_units_policy_off_keeps_relation_priority() -> None:
+    single_a = _composite_unit(
+        "single:A:bottom",
+        ("A:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_b = _composite_unit(
+        "single:B:bottom",
+        ("B:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_c = _composite_unit(
+        "single:C:bottom",
+        ("C:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    shared_ab = _composite_unit(
+        "shared:A:B",
+        ("A:bottom", "B:bottom"),
+        CuttingUnitType.SHARED_EDGE,
+    )
+    chain_bc = _composite_unit(
+        "chain:B:C",
+        ("B:bottom", "C:bottom"),
+        CuttingUnitType.COLLINEAR_CHAIN,
+    )
+
+    selected = select_coverage_units(
+        (single_a, single_b, single_c, shared_ab, chain_bc),
+        repeat_cut_policy="off",
+    )
+    selected_ids = {unit.unit_id for unit in selected}
+
+    assert "shared:A:B" in selected_ids
+    assert "chain:B:C" in selected_ids
+    assert "single:C:bottom" not in selected_ids
+
+
+def test_select_coverage_units_soft_policy_keeps_composite_when_it_adds_coverage() -> None:
+    single_a = _composite_unit(
+        "single:A:bottom",
+        ("A:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_b = _composite_unit(
+        "single:B:bottom",
+        ("B:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_c = _composite_unit(
+        "single:C:bottom",
+        ("C:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    shared_ab = _composite_unit(
+        "shared:A:B",
+        ("A:bottom", "B:bottom"),
+        CuttingUnitType.SHARED_EDGE,
+    )
+    chain_bc = _composite_unit(
+        "chain:B:C",
+        ("B:bottom", "C:bottom"),
+        CuttingUnitType.COLLINEAR_CHAIN,
+    )
+
+    selected = select_coverage_units(
+        (single_a, single_b, single_c, shared_ab, chain_bc),
+        repeat_cut_policy="soft",
+    )
+    selected_ids = {unit.unit_id for unit in selected}
+
+    assert "shared:A:B" in selected_ids
+    assert "chain:B:C" in selected_ids
+    assert "single:C:bottom" not in selected_ids
+
+
 def test_greedy_unit_actions_chooses_reversed_direction_when_closer() -> None:
     unit = _single_unit("u1", Point(0, 0), Point(10, 0))
 

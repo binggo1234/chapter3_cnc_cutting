@@ -36,6 +36,17 @@ from .topology_operators import (
 )
 
 
+REPEAT_CUT_POLICIES = ("hard", "soft", "off")
+DEFAULT_REPEAT_CUT_POLICY = "hard"
+
+
+def validate_repeat_cut_policy(policy: str) -> str:
+    if policy not in REPEAT_CUT_POLICIES:
+        choices = ", ".join(REPEAT_CUT_POLICIES)
+        raise ValueError(f"repeat_cut_policy must be one of: {choices}")
+    return policy
+
+
 @dataclass(frozen=True)
 class LocalSearchConfig:
     max_iterations: int = 50
@@ -49,6 +60,10 @@ class LocalSearchConfig:
     max_neighbors_per_iteration: int | None = None
     topology_candidate_pool_size: int | None = None
     process_aware_initial_order: bool = False
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY
+
+    def __post_init__(self) -> None:
+        validate_repeat_cut_policy(self.repeat_cut_policy)
 
 
 def _reached_neighbor_limit(
@@ -80,6 +95,10 @@ class BeamSearchConfig:
     unstable_layer_expansion_bonus: int = 0
     completion_aware_prerank: bool = False
     unstable_completion_focus_count: int | None = None
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY
+
+    def __post_init__(self) -> None:
+        validate_repeat_cut_policy(self.repeat_cut_policy)
 
 
 @dataclass(frozen=True)
@@ -329,7 +348,33 @@ def evaluate_neighbor_move_metrics(
 
 def process_metric_key(
     metrics: PathMetrics,
-) -> tuple[float, float, int, float, int, float, int, float, float, float, float]:
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
+) -> tuple:
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
+    if repeat_cut_policy == "off":
+        return (
+            metrics.hard_penalty,
+            metrics.stability_penalty,
+            metrics.machining_cost,
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            -metrics.continuity_reward,
+        )
+    if repeat_cut_policy == "soft":
+        return (
+            metrics.hard_penalty,
+            metrics.stability_penalty,
+            metrics.machining_cost + metrics.repeated_cut_length,
+            metrics.repeated_cut_segment_count,
+            metrics.redundant_cut_action_count,
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            -metrics.continuity_reward,
+        )
     return (
         metrics.hard_penalty,
         metrics.stability_penalty,
@@ -347,7 +392,29 @@ def process_metric_key(
 
 def path_distance_metric_key(
     metrics: PathMetrics,
-) -> tuple[float, int, float, int, float, float, float, float, int]:
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
+) -> tuple:
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
+    if repeat_cut_policy == "off":
+        return (
+            metrics.hard_penalty,
+            metrics.machining_cost,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+        )
+    if repeat_cut_policy == "soft":
+        return (
+            metrics.hard_penalty,
+            metrics.machining_cost + metrics.repeated_cut_length,
+            metrics.repeated_cut_segment_count,
+            metrics.redundant_cut_action_count,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+        )
     return (
         metrics.hard_penalty,
         metrics.repeated_cut_segment_count,
@@ -363,8 +430,33 @@ def path_distance_metric_key(
 
 def process_state_metric_key(
     state: IncrementalMetricsState,
-) -> tuple[float, float, int, float, int, int, float, float, float, float]:
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
+) -> tuple:
     metrics = state.metrics
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
+    if repeat_cut_policy == "off":
+        return (
+            metrics.hard_penalty,
+            metrics.stability_penalty + float(len(state.unstable_part_ids)),
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            -metrics.continuity_reward,
+        )
+    if repeat_cut_policy == "soft":
+        return (
+            metrics.hard_penalty,
+            metrics.stability_penalty + float(len(state.unstable_part_ids)),
+            metrics.repeated_cut_length,
+            metrics.repeated_cut_segment_count,
+            metrics.redundant_cut_action_count,
+            metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
+            metrics.travel_mode_cost,
+            metrics.air_move_distance,
+            metrics.turn_penalty,
+            -metrics.continuity_reward,
+        )
     return (
         metrics.hard_penalty,
         metrics.stability_penalty + float(len(state.unstable_part_ids)),
@@ -474,7 +566,9 @@ def process_aware_unit_order(
     tool: ToolConfig,
     process_model: CuttingProcessModel | None = None,
     candidate_pool_size: int | None = None,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> tuple[DirectedUnitCandidate, ...]:
+    repeat_cut_policy = validate_repeat_cut_policy(repeat_cut_policy)
     remaining = list(units)
     directed_candidate_cache = {
         unit.unit_id: directed_unit_candidates(unit)
@@ -532,7 +626,10 @@ def process_aware_unit_order(
                 process_model=process_model,
             )
             key = (
-                process_state_metric_key(next_state),
+                process_state_metric_key(
+                    next_state,
+                    repeat_cut_policy=repeat_cut_policy,
+                ),
                 transition_score(
                     candidate,
                     current_point=state.current_point,
@@ -632,9 +729,10 @@ def _beam_node_rank(
     node: BeamSearchNode,
     transition_cost: float = 0.0,
     is_reversed: bool = False,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> tuple:
     return (
-        process_state_metric_key(node.state),
+        process_state_metric_key(node.state, repeat_cut_policy=repeat_cut_policy),
         transition_cost,
         len(node.remaining_units),
         node.previous_unit.unit_id if node.previous_unit is not None else "",
@@ -648,6 +746,7 @@ def _beam_expansion_rank(
     transition_cost: float,
     process_model: CuttingProcessModel | None = None,
     completion_aware_prerank: bool = False,
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> tuple:
     unstable_overlap_count = 0
     covered_segment_count = 0
@@ -656,7 +755,7 @@ def _beam_expansion_rank(
         unstable_overlap_count = len(candidate_part_ids & node.state.unstable_part_ids)
         covered_segment_count = len(candidate.unit.covered_segment_ids)
     return (
-        process_state_metric_key(node.state),
+        process_state_metric_key(node.state, repeat_cut_policy=repeat_cut_policy),
         -unstable_overlap_count,
         -covered_segment_count,
         transition_cost,
@@ -764,6 +863,7 @@ def _limited_beam_expansions(
                         transition_cost,
                         process_model=process_model,
                         completion_aware_prerank=config.completion_aware_prerank,
+                        repeat_cut_policy=config.repeat_cut_policy,
                     ),
                 )
             )
@@ -856,10 +956,17 @@ def _beam_layer_diagnostics(
     diversity_pruned_count: int,
     fallback_added_count: int,
     output_beam: tuple[BeamSearchNode, ...],
+    repeat_cut_policy: str = DEFAULT_REPEAT_CUT_POLICY,
 ) -> BeamLayerDiagnostics:
     if output_beam:
         metrics = tuple(finalize_metrics(node.state) for node in output_beam)
-        best_by_process = min(metrics, key=process_metric_key)
+        best_by_process = min(
+            metrics,
+            key=lambda item: process_metric_key(
+                item,
+                repeat_cut_policy=repeat_cut_policy,
+            ),
+        )
         worst_stability = max(metric.stability_penalty for metric in metrics)
         worst_travel = max(metric.travel_mode_cost for metric in metrics)
         released_max = max(len(node.state.released_part_ids) for node in output_beam)
@@ -967,6 +1074,7 @@ def process_aware_beam_search_order(
                         next_node,
                         transition_cost=expansion.transition_cost,
                         is_reversed=candidate.is_reversed,
+                        repeat_cut_policy=config.repeat_cut_policy,
                     ),
                     next_node,
                 )
@@ -990,6 +1098,7 @@ def process_aware_beam_search_order(
                     diversity_pruned_count=0,
                     fallback_added_count=0,
                     output_beam=(),
+                    repeat_cut_policy=config.repeat_cut_policy,
                 )
             )
             break
@@ -1024,6 +1133,7 @@ def process_aware_beam_search_order(
                 diversity_pruned_count=diversity_pruned_count,
                 fallback_added_count=fallback_added_count,
                 output_beam=beam,
+                repeat_cut_policy=config.repeat_cut_policy,
             )
         )
 
@@ -1041,7 +1151,10 @@ def process_aware_beam_search_order(
         beam,
         key=lambda node: (
             len(node.remaining_units),
-            process_metric_key(finalize_metrics(node.state)),
+            process_metric_key(
+                finalize_metrics(node.state),
+                repeat_cut_policy=config.repeat_cut_policy,
+            ),
             tuple(candidate.unit.unit_id for candidate in node.directed_units),
         ),
     )
@@ -1289,7 +1402,10 @@ def improve_directed_unit_order(
         )
         best_neighbor = current
         best_metrics = current_metrics
-        best_key = process_metric_key(current_metrics)
+        best_key = process_metric_key(
+            current_metrics,
+            repeat_cut_policy=config.repeat_cut_policy,
+        )
 
         for move in local_neighbor_moves(current, config):
             neighbor_metrics = evaluate_neighbor_move_metrics(
@@ -1300,7 +1416,10 @@ def improve_directed_unit_order(
                 tool,
                 process_model=process_model,
             )
-            neighbor_key = process_metric_key(neighbor_metrics)
+            neighbor_key = process_metric_key(
+                neighbor_metrics,
+                repeat_cut_policy=config.repeat_cut_policy,
+            )
             if neighbor_key < best_key:
                 best_neighbor = move.directed_units
                 best_metrics = neighbor_metrics
@@ -1364,7 +1483,10 @@ def improve_directed_unit_order_by_path_distance(
         )
         best_neighbor = current
         best_metrics = current_metrics
-        best_key = path_distance_metric_key(current_metrics)
+        best_key = path_distance_metric_key(
+            current_metrics,
+            repeat_cut_policy=config.repeat_cut_policy,
+        )
 
         for move in local_neighbor_moves(current, config):
             neighbor_metrics = evaluate_neighbor_move_metrics(
@@ -1375,7 +1497,10 @@ def improve_directed_unit_order_by_path_distance(
                 tool,
                 process_model=process_model,
             )
-            neighbor_key = path_distance_metric_key(neighbor_metrics)
+            neighbor_key = path_distance_metric_key(
+                neighbor_metrics,
+                repeat_cut_policy=config.repeat_cut_policy,
+            )
             if neighbor_key < best_key:
                 best_neighbor = move.directed_units
                 best_metrics = neighbor_metrics
@@ -1446,6 +1571,7 @@ def topology_local_search_order(
             tool=tool,
             process_model=process_model,
             candidate_pool_size=config.topology_candidate_pool_size,
+            repeat_cut_policy=config.repeat_cut_policy,
         )
     else:
         initial_order = topology_aware_unit_order(
@@ -1549,6 +1675,7 @@ def multistart_process_initial_orders(
                 tool=tool,
                 process_model=process_model,
                 candidate_pool_size=config.topology_candidate_pool_size,
+                repeat_cut_policy=config.repeat_cut_policy,
             )
         )
 
@@ -1595,10 +1722,16 @@ def process_local_search_multistart_order(
         total_iterations += result.iterations
         any_improved = any_improved or result.improved
         if best_result is None or (
-            process_metric_key(result.metrics),
+            process_metric_key(
+                result.metrics,
+                repeat_cut_policy=config.repeat_cut_policy,
+            ),
             _order_signature(result.directed_units),
         ) < (
-            process_metric_key(best_result.metrics),
+            process_metric_key(
+                best_result.metrics,
+                repeat_cut_policy=config.repeat_cut_policy,
+            ),
             _order_signature(best_result.directed_units),
         ):
             best_result = result
@@ -1642,6 +1775,11 @@ def process_aware_beam_polished_search_order(
     if not beam_result.directed_units:
         return beam_result
     if polish_config is None:
+        repeat_cut_policy = (
+            beam_config.repeat_cut_policy
+            if beam_config is not None
+            else DEFAULT_REPEAT_CUT_POLICY
+        )
         polish_config = LocalSearchConfig(
             max_iterations=2,
             first_improvement=True,
@@ -1650,6 +1788,7 @@ def process_aware_beam_polished_search_order(
             max_two_opt_span=6,
             max_neighbors_per_iteration=160,
             process_aware_initial_order=True,
+            repeat_cut_policy=repeat_cut_policy,
         )
 
     polished = improve_directed_unit_order(

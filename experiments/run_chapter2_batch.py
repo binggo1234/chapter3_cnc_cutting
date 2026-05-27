@@ -45,11 +45,13 @@ from progress_log import (
 from progress_bar import TerminalProgressBar
 from process_options import (
     add_experiment_preset_arg,
+    add_repeat_cut_policy_args,
     add_stability_model_args,
     add_tool_event_gate_args,
     apply_experiment_preset,
     build_process_model_from_args,
     build_tool_event_gate_from_args,
+    repeat_cut_policy_from_args,
 )
 from task_timeout import TaskTimeoutError, task_timeout
 
@@ -98,6 +100,7 @@ class BatchRouteRow:
     tool_event_min_travel_saving: float
     tool_event_min_travel_saving_ratio: float
     tool_event_min_machining_saving: float
+    repeat_cut_policy: str
     method: str
     topology_candidate_pool_size: int | None
     beam_width: int | None
@@ -164,6 +167,7 @@ class BatchSummaryRow:
     tool_event_min_travel_saving: float
     tool_event_min_travel_saving_ratio: float
     tool_event_min_machining_saving: float
+    repeat_cut_policy: str
     n: int
     runtime_ms_mean: float
     runtime_ms_std: float
@@ -197,6 +201,7 @@ class BatchBinSummaryRow:
     tool_event_min_travel_saving: float
     tool_event_min_travel_saving_ratio: float
     tool_event_min_machining_saving: float
+    repeat_cut_policy: str
     n: int
     runtime_ms_mean: float
     runtime_ms_std: float
@@ -233,7 +238,11 @@ class PlannerSpec:
     beam_unstable_layer_expansion_bonus: int | None = None
 
 
-def compact_local_search_config(size: int, process_aware_initial_order: bool) -> LocalSearchConfig:
+def compact_local_search_config(
+    size: int,
+    process_aware_initial_order: bool,
+    repeat_cut_policy: str = "hard",
+) -> LocalSearchConfig:
     if size <= 50:
         return LocalSearchConfig(
             max_iterations=2,
@@ -244,6 +253,7 @@ def compact_local_search_config(size: int, process_aware_initial_order: bool) ->
             first_improvement=True,
             topology_candidate_pool_size=96,
             process_aware_initial_order=process_aware_initial_order,
+            repeat_cut_policy=repeat_cut_policy,
         )
     return LocalSearchConfig(
         max_iterations=1,
@@ -254,6 +264,7 @@ def compact_local_search_config(size: int, process_aware_initial_order: bool) ->
         first_improvement=True,
         topology_candidate_pool_size=64,
         process_aware_initial_order=process_aware_initial_order,
+        repeat_cut_policy=repeat_cut_policy,
     )
 
 
@@ -265,7 +276,10 @@ def topology_pool_size(size: int) -> int:
     return 48
 
 
-def compact_beam_search_config(size: int) -> BeamSearchConfig:
+def compact_beam_search_config(
+    size: int,
+    repeat_cut_policy: str = "hard",
+) -> BeamSearchConfig:
     if size <= 20:
         return BeamSearchConfig(
             beam_width=8,
@@ -276,6 +290,7 @@ def compact_beam_search_config(size: int) -> BeamSearchConfig:
             min_expansions_per_parent=0,
             unstable_min_expansions_per_parent=2,
             unstable_layer_expansion_multiplier=1.0,
+            repeat_cut_policy=repeat_cut_policy,
         )
     if size <= 75:
         return BeamSearchConfig(
@@ -287,6 +302,7 @@ def compact_beam_search_config(size: int) -> BeamSearchConfig:
             min_expansions_per_parent=0,
             unstable_min_expansions_per_parent=2,
             unstable_layer_expansion_multiplier=1.0,
+            repeat_cut_policy=repeat_cut_policy,
         )
     return BeamSearchConfig(
         beam_width=4,
@@ -297,6 +313,7 @@ def compact_beam_search_config(size: int) -> BeamSearchConfig:
         min_expansions_per_parent=0,
         unstable_min_expansions_per_parent=2,
         unstable_layer_expansion_multiplier=1.0,
+        repeat_cut_policy=repeat_cut_policy,
     )
 
 
@@ -402,9 +419,10 @@ def build_planners(
     process_model,
     tool_event_gate,
     size: int,
+    repeat_cut_policy: str,
 ) -> tuple[PlannerSpec, ...]:
     pool_size = topology_pool_size(size)
-    beam_config = compact_beam_search_config(size)
+    beam_config = compact_beam_search_config(size, repeat_cut_policy)
     fallback_beam_config = wider_beam_search_config(beam_config)
     planners: dict[str, PlannerSpec] = {
         "greedy": PlannerSpec(
@@ -414,6 +432,7 @@ def build_planners(
                 panel,
                 tool,
                 process_model=process_model,
+                repeat_cut_policy=repeat_cut_policy,
             ),
         ),
         "path_distance_local_search": PlannerSpec(
@@ -422,7 +441,7 @@ def build_planners(
                 units,
                 panel,
                 tool,
-                config=compact_local_search_config(size, False),
+                config=compact_local_search_config(size, False, repeat_cut_policy),
                 process_model=process_model,
             ),
         ),
@@ -434,6 +453,7 @@ def build_planners(
                 tool,
                 process_model=process_model,
                 candidate_pool_size=pool_size,
+                repeat_cut_policy=repeat_cut_policy,
             ),
             topology_candidate_pool_size=pool_size,
         ),
@@ -446,6 +466,7 @@ def build_planners(
                 process_model=process_model,
                 candidate_pool_size=pool_size,
                 process_aware=True,
+                repeat_cut_policy=repeat_cut_policy,
             ),
             topology_candidate_pool_size=pool_size,
         ),
@@ -455,7 +476,7 @@ def build_planners(
                 units,
                 panel,
                 tool,
-                config=compact_local_search_config(size, True),
+                config=compact_local_search_config(size, True, repeat_cut_policy),
                 process_model=process_model,
             ),
             topology_candidate_pool_size=pool_size,
@@ -497,6 +518,7 @@ def build_planners(
                 fallback_margin=1000.0,
                 process_model=process_model,
                 tool_event_gate=tool_event_gate,
+                repeat_cut_policy=repeat_cut_policy,
             ),
             topology_candidate_pool_size=pool_size,
             beam_width=beam_config.beam_width,
@@ -523,11 +545,12 @@ def build_planners(
                 tool,
                 beam_config=beam_config,
                 fallback_beam_config=fallback_beam_config,
-                polish_config=compact_local_search_config(size, True),
+                polish_config=compact_local_search_config(size, True, repeat_cut_policy),
                 topology_candidate_pool_size=pool_size,
                 fallback_margin=1000.0,
                 process_model=process_model,
                 tool_event_gate=tool_event_gate,
+                repeat_cut_policy=repeat_cut_policy,
             ),
             topology_candidate_pool_size=pool_size,
             beam_width=beam_config.beam_width,
@@ -553,7 +576,7 @@ def build_planners(
                 panel,
                 tool,
                 beam_config=beam_config,
-                polish_config=compact_local_search_config(size, True),
+                polish_config=compact_local_search_config(size, True, repeat_cut_policy),
                 process_model=process_model,
             ),
             beam_width=beam_config.beam_width,
@@ -578,7 +601,7 @@ def build_planners(
                 units,
                 panel,
                 tool,
-                config=compact_local_search_config(size, False),
+                config=compact_local_search_config(size, False, repeat_cut_policy),
                 process_model=process_model,
             ),
         ),
@@ -588,7 +611,7 @@ def build_planners(
                 units,
                 panel,
                 tool,
-                config=compact_local_search_config(size, True),
+                config=compact_local_search_config(size, True, repeat_cut_policy),
                 process_model=process_model,
             ),
         ),
@@ -609,6 +632,7 @@ def run_plan(
     tool_event_min_travel_saving: float,
     tool_event_min_travel_saving_ratio: float,
     tool_event_min_machining_saving: float,
+    repeat_cut_policy: str,
     spec: PlannerSpec,
     layout: Layout,
     candidate_units: tuple[CuttingUnit, ...],
@@ -640,6 +664,7 @@ def run_plan(
         tool_event_min_travel_saving=tool_event_min_travel_saving,
         tool_event_min_travel_saving_ratio=tool_event_min_travel_saving_ratio,
         tool_event_min_machining_saving=tool_event_min_machining_saving,
+        repeat_cut_policy=repeat_cut_policy,
         method=spec.method,
         topology_candidate_pool_size=spec.topology_candidate_pool_size,
         beam_width=spec.beam_width,
@@ -748,6 +773,7 @@ def iter_case_rows(
     panel = Panel(layout.panel_id, layout.panel_width, layout.panel_height)
     process_model = build_process_model_from_args(layout, stability_args)
     tool_event_gate = build_tool_event_gate_from_args(stability_args)
+    repeat_cut_policy = repeat_cut_policy_from_args(stability_args)
     units = build_candidate_cutting_units(
         layout,
         tool,
@@ -761,6 +787,7 @@ def iter_case_rows(
         process_model,
         tool_event_gate,
         len(layout.rectangles),
+        repeat_cut_policy,
     ):
         key = batch_key_from_parts(
             archive.name,
@@ -824,6 +851,7 @@ def iter_case_rows(
                     tool_event_gate.min_travel_saving_per_extra_event,
                     tool_event_gate.min_travel_saving_ratio_per_extra_event,
                     tool_event_gate.min_machining_saving,
+                    repeat_cut_policy,
                     spec,
                     layout,
                     units,
@@ -934,6 +962,8 @@ def coerce_batch_value(name: str, value: str):
             )
         if name == "tool_event_min_machining_saving":
             return DEFAULT_TOOL_EVENT_GATE_CONFIG.min_machining_saving
+        if name == "repeat_cut_policy":
+            return "hard"
         if name in COVERAGE_INT_FIELDS:
             return 0
         if name in COVERAGE_FLOAT_FIELDS:
@@ -1052,6 +1082,7 @@ def batch_key(row: BatchRouteRow) -> tuple[str, ...]:
         f"{row.tool_event_min_travel_saving:.12g}",
         f"{row.tool_event_min_travel_saving_ratio:.12g}",
         f"{row.tool_event_min_machining_saving:.12g}",
+        row.repeat_cut_policy,
     )
 
 
@@ -1076,17 +1107,18 @@ def batch_key_from_parts(
         f"{args.tool_event_min_travel_saving:.12g}",
         f"{args.tool_event_min_travel_saving_ratio:.12g}",
         f"{args.tool_event_min_machining_saving:.12g}",
+        repeat_cut_policy_from_args(args),
     )
 
 
 def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ...]:
-    grouped: dict[str, list[BatchRouteRow]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[BatchRouteRow]] = defaultdict(list)
     for row in rows:
-        grouped[row.method].append(row)
+        grouped[(row.method, row.repeat_cut_policy)].append(row)
 
     summary: list[BatchSummaryRow] = []
-    for method in sorted(grouped):
-        items = grouped[method]
+    for method, repeat_cut_policy in sorted(grouped):
+        items = grouped[(method, repeat_cut_policy)]
         runtime_values = [row.runtime_ms for row in items]
         air_values = [row.air_move_distance for row in items]
         mode_cost_values = [row.travel_mode_cost for row in items]
@@ -1106,6 +1138,7 @@ def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ..
                 tool_event_min_machining_saving=(
                     items[0].tool_event_min_machining_saving
                 ),
+                repeat_cut_policy=repeat_cut_policy,
                 n=len(items),
                 runtime_ms_mean=mean(runtime_values),
                 runtime_ms_std=pstdev(runtime_values),
@@ -1142,13 +1175,13 @@ def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ..
 
 
 def summarize_bin_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchBinSummaryRow, ...]:
-    grouped: dict[tuple[str, str], list[BatchRouteRow]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str], list[BatchRouteRow]] = defaultdict(list)
     for row in rows:
-        grouped[(row.rectangle_count_bin, row.method)].append(row)
+        grouped[(row.rectangle_count_bin, row.method, row.repeat_cut_policy)].append(row)
 
     summary: list[BatchBinSummaryRow] = []
-    for rectangle_bin, method in sorted(grouped):
-        items = grouped[(rectangle_bin, method)]
+    for rectangle_bin, method, repeat_cut_policy in sorted(grouped):
+        items = grouped[(rectangle_bin, method, repeat_cut_policy)]
         runtime_values = [row.runtime_ms for row in items]
         air_values = [row.air_move_distance for row in items]
         mode_cost_values = [row.travel_mode_cost for row in items]
@@ -1169,6 +1202,7 @@ def summarize_bin_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchBinSummary
                 tool_event_min_machining_saving=(
                     items[0].tool_event_min_machining_saving
                 ),
+                repeat_cut_policy=repeat_cut_policy,
                 n=len(items),
                 runtime_ms_mean=mean(runtime_values),
                 runtime_ms_std=pstdev(runtime_values),
@@ -1225,7 +1259,8 @@ def write_bin_summary(rows: tuple[BatchBinSummaryRow, ...], output_path: Path) -
 def print_method_summary(rows: tuple[BatchRouteRow, ...]) -> None:
     for row in summarize_rows(rows):
         print(
-            f"{row.method:<36} n={row.n:<3} runtime={row.runtime_ms_mean:>9.3f} ms "
+            f"{row.method:<36} policy={row.repeat_cut_policy:<4} "
+            f"n={row.n:<3} runtime={row.runtime_ms_mean:>9.3f} ms "
             f"air={row.air_move_distance_mean:>10.3f} "
             f"mode_cost={row.travel_mode_cost_mean:>10.3f} "
             f"hard={row.hard_penalty_mean:>6.3f} "
@@ -1284,6 +1319,7 @@ def parse_args() -> argparse.Namespace:
     add_experiment_preset_arg(parser)
     add_stability_model_args(parser)
     add_tool_event_gate_args(parser)
+    add_repeat_cut_policy_args(parser)
     args = parser.parse_args()
     return apply_experiment_preset(args)
 

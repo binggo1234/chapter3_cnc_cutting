@@ -23,16 +23,39 @@ DEFAULT_METRICS = (
     "travel_mode_cost",
     "stability_penalty",
     "hard_penalty",
+    "cut_repeated_segment_count",
     "tool_event_count",
     "detour_count",
     "runtime_ms",
 )
-PROCESS_KEY_FIELDS = (
+HARD_PROCESS_KEY_FIELDS = (
     "hard_penalty",
     "stability_penalty",
     "cut_repeated_segment_count",
     "cut_duplicate_segment_length",
     "redundant_cut_action_count",
+    "machining_cost",
+    "tool_event_count",
+    "travel_mode_cost",
+    "air_move_distance",
+    "turn_penalty",
+    "negative_continuity_reward",
+)
+SOFT_PROCESS_KEY_FIELDS = (
+    "hard_penalty",
+    "stability_penalty",
+    "soft_repeat_machining_cost",
+    "cut_repeated_segment_count",
+    "redundant_cut_action_count",
+    "tool_event_count",
+    "travel_mode_cost",
+    "air_move_distance",
+    "turn_penalty",
+    "negative_continuity_reward",
+)
+OFF_PROCESS_KEY_FIELDS = (
+    "hard_penalty",
+    "stability_penalty",
     "machining_cost",
     "tool_event_count",
     "travel_mode_cost",
@@ -62,6 +85,11 @@ class ResultRow:
             )
         if field == "negative_continuity_reward":
             return -self.number("continuity_reward", default)
+        if field == "soft_repeat_machining_cost":
+            return self.number("machining_cost", default) + self.number(
+                "cut_duplicate_segment_length",
+                default,
+            )
         value = self.values.get(field, "")
         if value == "":
             return default
@@ -99,6 +127,8 @@ def infer_case_key_fields(fieldnames: Iterable[str]) -> tuple[str, ...]:
     available = set(fieldnames)
     for candidate in CASE_KEY_CANDIDATES:
         if all(field in available for field in candidate):
+            if "repeat_cut_policy" in available:
+                return candidate + ("repeat_cut_policy",)
             return candidate
     fallback = tuple(
         field
@@ -140,8 +170,19 @@ def group_by_case(rows: tuple[ResultRow, ...]) -> dict[str, dict[str, ResultRow]
     return grouped
 
 
+def process_key_fields(policy: str) -> tuple[str, ...]:
+    if policy == "soft":
+        return SOFT_PROCESS_KEY_FIELDS
+    if policy == "off":
+        return OFF_PROCESS_KEY_FIELDS
+    return HARD_PROCESS_KEY_FIELDS
+
+
 def process_key(row: ResultRow) -> tuple[float, ...]:
-    return tuple(row.number(field) for field in PROCESS_KEY_FIELDS)
+    return tuple(
+        row.number(field)
+        for field in process_key_fields(row.values.get("repeat_cut_policy", "hard"))
+    )
 
 
 def value_for_metric(row: ResultRow, metric: str) -> float | tuple[float, ...]:
