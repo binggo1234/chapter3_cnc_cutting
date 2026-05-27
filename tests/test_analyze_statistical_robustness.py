@@ -33,6 +33,8 @@ FIELDS = (
     "detour_count",
     "detour_distance",
     "travel_mode_cost",
+    "turn_penalty",
+    "continuity_reward",
     "hard_penalty",
     "stability_penalty",
 )
@@ -63,6 +65,8 @@ def row(
         "detour_count": "2",
         "detour_distance": "20",
         "travel_mode_cost": f"{travel}",
+        "turn_penalty": "0",
+        "continuity_reward": "0",
         "hard_penalty": "0",
         "stability_penalty": f"{stability}",
     }

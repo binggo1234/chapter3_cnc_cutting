@@ -33,8 +33,9 @@ PROCESS_KEY_FIELDS = (
     "machining_cost",
     "tool_event_count",
     "travel_mode_cost",
-    "detour_distance",
     "air_move_distance",
+    "turn_penalty",
+    "negative_continuity_reward",
 )
 
 
@@ -56,6 +57,8 @@ class ResultRow:
                 + self.number("lift_count", default)
                 + self.number("safe_lift_count", default)
             )
+        if field == "negative_continuity_reward":
+            return -self.number("continuity_reward", default)
         value = self.values.get(field, "")
         if value == "":
             return default
