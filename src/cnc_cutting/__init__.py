@@ -2,6 +2,7 @@
 
 from .cutting_units import build_candidate_cutting_units
 from .cutting_graph import build_unit_cutting_graph
+from .coverage_diagnostics import CoverageDiagnostics, diagnose_route_coverage
 from .exact_dp import ExactDPConfig, exact_process_dp_order
 from .layout_generator import (
     ClusteredLayoutConfig,
@@ -43,6 +44,7 @@ __all__ = [
     "CuttingProcessModel",
     "CuttingUnit",
     "CuttingUnitType",
+    "CoverageDiagnostics",
     "ExactDPConfig",
     "ClusteredLayoutConfig",
     "Layout",
@@ -57,6 +59,7 @@ __all__ = [
     "build_candidate_cutting_units",
     "build_unit_cutting_graph",
     "build_process_model",
+    "diagnose_route_coverage",
     "exact_process_dp_order",
     "generate_synthetic_layout",
     "generate_clustered_channel_layout",

@@ -11,6 +11,7 @@ from statistics import mean, pstdev
 from time import perf_counter
 from typing import Callable, Iterator
 
+from cnc_cutting.coverage_diagnostics import diagnose_route_coverage
 from cnc_cutting.cutting_units import build_candidate_cutting_units
 from cnc_cutting.io import (
     discover_chapter2_placement_members,
@@ -19,7 +20,7 @@ from cnc_cutting.io import (
     tool_config_from_chapter2_config,
 )
 from cnc_cutting.local_search import BeamSearchConfig, LocalSearchConfig
-from cnc_cutting.models import Layout, Panel
+from cnc_cutting.models import CuttingProcessModel, CuttingUnit, Layout, Panel
 from cnc_cutting.optimizer import (
     DEFAULT_TOOL_EVENT_GATE_CONFIG,
     RoutePlan,
@@ -114,6 +115,28 @@ class BatchRouteRow:
     candidate_unit_count: int
     selected_unit_count: int
     action_count: int
+    coverage_original_segment_count: int
+    coverage_covered_segment_count: int
+    coverage_missing_segment_count: int
+    coverage_repeated_segment_count: int
+    coverage_duplicate_segment_count: int
+    coverage_duplicate_segment_length: float
+    cut_covered_segment_count: int
+    cut_missing_segment_count: int
+    cut_repeated_segment_count: int
+    cut_duplicate_segment_count: int
+    cut_duplicate_segment_length: float
+    selected_single_edge_count: int
+    selected_shared_edge_count: int
+    selected_near_shared_channel_count: int
+    selected_collinear_chain_count: int
+    selected_composite_unit_count: int
+    selected_composite_covered_segment_count: int
+    selected_composite_coverage_ratio: float
+    partially_overlapping_selected_unit_count: int
+    redundant_selected_unit_count: int
+    partial_repeated_cut_action_count: int
+    redundant_cut_action_count: int
     air_move_distance: float
     cutting_length: float
     pierce_count: int
@@ -153,6 +176,12 @@ class BatchSummaryRow:
     safe_lift_count_mean: float
     detour_count_mean: float
     rectangle_count_mean: float
+    coverage_missing_segment_count_mean: float
+    coverage_repeated_segment_count_mean: float
+    cut_missing_segment_count_mean: float
+    cut_repeated_segment_count_mean: float
+    redundant_cut_action_count_mean: float
+    selected_composite_coverage_ratio_mean: float
 
 
 @dataclass(frozen=True)
@@ -180,6 +209,12 @@ class BatchBinSummaryRow:
     safe_lift_count_mean: float
     detour_count_mean: float
     rectangle_count_mean: float
+    coverage_missing_segment_count_mean: float
+    coverage_repeated_segment_count_mean: float
+    cut_missing_segment_count_mean: float
+    cut_repeated_segment_count_mean: float
+    redundant_cut_action_count_mean: float
+    selected_composite_coverage_ratio_mean: float
 
 
 @dataclass(frozen=True)
@@ -576,12 +611,19 @@ def run_plan(
     tool_event_min_machining_saving: float,
     spec: PlannerSpec,
     layout: Layout,
-    candidate_unit_count: int,
+    candidate_units: tuple[CuttingUnit, ...],
+    process_model: CuttingProcessModel,
 ) -> BatchRouteRow:
     start = perf_counter()
     plan = spec.planner()
     runtime_ms = (perf_counter() - start) * 1000.0
     case_name, placement_method, seed = parse_member_metadata(placements_member)
+    coverage = diagnose_route_coverage(
+        candidate_units,
+        plan.selected_units,
+        plan.actions,
+        process_model=process_model,
+    )
     return BatchRouteRow(
         archive=archive.name,
         case_name=case_name,
@@ -616,9 +658,35 @@ def run_plan(
         runtime_ms=runtime_ms,
         rectangle_count=len(layout.rectangles),
         rectangle_count_bin=rectangle_count_bin(len(layout.rectangles)),
-        candidate_unit_count=candidate_unit_count,
+        candidate_unit_count=len(candidate_units),
         selected_unit_count=len(plan.selected_units),
         action_count=len(plan.actions),
+        coverage_original_segment_count=coverage.original_segment_count,
+        coverage_covered_segment_count=coverage.coverage_covered_segment_count,
+        coverage_missing_segment_count=coverage.coverage_missing_segment_count,
+        coverage_repeated_segment_count=coverage.coverage_repeated_segment_count,
+        coverage_duplicate_segment_count=coverage.coverage_duplicate_segment_count,
+        coverage_duplicate_segment_length=coverage.coverage_duplicate_segment_length,
+        cut_covered_segment_count=coverage.cut_covered_segment_count,
+        cut_missing_segment_count=coverage.cut_missing_segment_count,
+        cut_repeated_segment_count=coverage.cut_repeated_segment_count,
+        cut_duplicate_segment_count=coverage.cut_duplicate_segment_count,
+        cut_duplicate_segment_length=coverage.cut_duplicate_segment_length,
+        selected_single_edge_count=coverage.selected_single_edge_count,
+        selected_shared_edge_count=coverage.selected_shared_edge_count,
+        selected_near_shared_channel_count=coverage.selected_near_shared_channel_count,
+        selected_collinear_chain_count=coverage.selected_collinear_chain_count,
+        selected_composite_unit_count=coverage.selected_composite_unit_count,
+        selected_composite_covered_segment_count=(
+            coverage.selected_composite_covered_segment_count
+        ),
+        selected_composite_coverage_ratio=coverage.selected_composite_coverage_ratio,
+        partially_overlapping_selected_unit_count=(
+            coverage.partially_overlapping_selected_unit_count
+        ),
+        redundant_selected_unit_count=coverage.redundant_selected_unit_count,
+        partial_repeated_cut_action_count=coverage.partial_repeated_cut_action_count,
+        redundant_cut_action_count=coverage.redundant_cut_action_count,
         air_move_distance=plan.metrics.air_move_distance,
         cutting_length=plan.metrics.cutting_length,
         pierce_count=plan.metrics.pierce_count,
@@ -758,7 +826,8 @@ def iter_case_rows(
                     tool_event_gate.min_machining_saving,
                     spec,
                     layout,
-                    len(units),
+                    units,
+                    process_model,
                 )
         except TaskTimeoutError:
             elapsed_ms = (perf_counter() - task_start) * 1000.0
@@ -865,6 +934,10 @@ def coerce_batch_value(name: str, value: str):
             )
         if name == "tool_event_min_machining_saving":
             return DEFAULT_TOOL_EVENT_GATE_CONFIG.min_machining_saving
+        if name in COVERAGE_INT_FIELDS:
+            return 0
+        if name in COVERAGE_FLOAT_FIELDS:
+            return 0.0
         return None
     if name == "tool_event_gate_enabled":
         return value == "True"
@@ -890,6 +963,25 @@ BATCH_INT_FIELDS = {
     "candidate_unit_count",
     "selected_unit_count",
     "action_count",
+    "coverage_original_segment_count",
+    "coverage_covered_segment_count",
+    "coverage_missing_segment_count",
+    "coverage_repeated_segment_count",
+    "coverage_duplicate_segment_count",
+    "cut_covered_segment_count",
+    "cut_missing_segment_count",
+    "cut_repeated_segment_count",
+    "cut_duplicate_segment_count",
+    "selected_single_edge_count",
+    "selected_shared_edge_count",
+    "selected_near_shared_channel_count",
+    "selected_collinear_chain_count",
+    "selected_composite_unit_count",
+    "selected_composite_covered_segment_count",
+    "partially_overlapping_selected_unit_count",
+    "redundant_selected_unit_count",
+    "partial_repeated_cut_action_count",
+    "redundant_cut_action_count",
     "pierce_count",
     "lift_count",
     "safe_lift_count",
@@ -913,6 +1005,35 @@ BATCH_FLOAT_FIELDS = {
     "detour_distance",
     "travel_mode_cost",
     "hard_penalty",
+    "coverage_duplicate_segment_length",
+    "cut_duplicate_segment_length",
+    "selected_composite_coverage_ratio",
+}
+COVERAGE_INT_FIELDS = {
+    "coverage_original_segment_count",
+    "coverage_covered_segment_count",
+    "coverage_missing_segment_count",
+    "coverage_repeated_segment_count",
+    "coverage_duplicate_segment_count",
+    "cut_covered_segment_count",
+    "cut_missing_segment_count",
+    "cut_repeated_segment_count",
+    "cut_duplicate_segment_count",
+    "selected_single_edge_count",
+    "selected_shared_edge_count",
+    "selected_near_shared_channel_count",
+    "selected_collinear_chain_count",
+    "selected_composite_unit_count",
+    "selected_composite_covered_segment_count",
+    "partially_overlapping_selected_unit_count",
+    "redundant_selected_unit_count",
+    "partial_repeated_cut_action_count",
+    "redundant_cut_action_count",
+}
+COVERAGE_FLOAT_FIELDS = {
+    "coverage_duplicate_segment_length",
+    "cut_duplicate_segment_length",
+    "selected_composite_coverage_ratio",
 }
 
 
@@ -997,6 +1118,24 @@ def summarize_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchSummaryRow, ..
                 safe_lift_count_mean=mean(row.safe_lift_count for row in items),
                 detour_count_mean=mean(row.detour_count for row in items),
                 rectangle_count_mean=mean(row.rectangle_count for row in items),
+                coverage_missing_segment_count_mean=mean(
+                    row.coverage_missing_segment_count for row in items
+                ),
+                coverage_repeated_segment_count_mean=mean(
+                    row.coverage_repeated_segment_count for row in items
+                ),
+                cut_missing_segment_count_mean=mean(
+                    row.cut_missing_segment_count for row in items
+                ),
+                cut_repeated_segment_count_mean=mean(
+                    row.cut_repeated_segment_count for row in items
+                ),
+                redundant_cut_action_count_mean=mean(
+                    row.redundant_cut_action_count for row in items
+                ),
+                selected_composite_coverage_ratio_mean=mean(
+                    row.selected_composite_coverage_ratio for row in items
+                ),
             )
         )
     return tuple(summary)
@@ -1042,6 +1181,24 @@ def summarize_bin_rows(rows: tuple[BatchRouteRow, ...]) -> tuple[BatchBinSummary
                 safe_lift_count_mean=mean(row.safe_lift_count for row in items),
                 detour_count_mean=mean(row.detour_count for row in items),
                 rectangle_count_mean=mean(row.rectangle_count for row in items),
+                coverage_missing_segment_count_mean=mean(
+                    row.coverage_missing_segment_count for row in items
+                ),
+                coverage_repeated_segment_count_mean=mean(
+                    row.coverage_repeated_segment_count for row in items
+                ),
+                cut_missing_segment_count_mean=mean(
+                    row.cut_missing_segment_count for row in items
+                ),
+                cut_repeated_segment_count_mean=mean(
+                    row.cut_repeated_segment_count for row in items
+                ),
+                redundant_cut_action_count_mean=mean(
+                    row.redundant_cut_action_count for row in items
+                ),
+                selected_composite_coverage_ratio_mean=mean(
+                    row.selected_composite_coverage_ratio for row in items
+                ),
             )
         )
     return tuple(summary)
@@ -1072,7 +1229,9 @@ def print_method_summary(rows: tuple[BatchRouteRow, ...]) -> None:
             f"air={row.air_move_distance_mean:>10.3f} "
             f"mode_cost={row.travel_mode_cost_mean:>10.3f} "
             f"hard={row.hard_penalty_mean:>6.3f} "
-            f"stability={row.stability_penalty_mean:>6.3f}"
+            f"stability={row.stability_penalty_mean:>6.3f} "
+            f"miss={row.coverage_missing_segment_count_mean:>5.2f} "
+            f"repeat_cut={row.cut_repeated_segment_count_mean:>5.2f}"
         )
 
 
