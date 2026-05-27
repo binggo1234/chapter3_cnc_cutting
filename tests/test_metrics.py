@@ -37,6 +37,77 @@ def test_path_metrics_machining_cost_combines_cutting_and_travel_modes() -> None
     assert metrics.machining_cost == 20.0
 
 
+def test_repeated_cut_segments_are_counted_as_process_penalty() -> None:
+    from cnc_cutting.models import Layout, PlacedRectangle
+
+    layout = Layout(
+        panel_id="P",
+        panel_width=100,
+        panel_height=100,
+        rectangles=(PlacedRectangle("A", 10, 10, 20, 10),),
+    )
+    process_model = build_process_model(layout)
+    panel = Panel("P", 100, 100)
+    tool = ToolConfig(trim_margin=0, tool_diameter=0, start_point=Point(10, 10))
+    actions = (
+        CuttingAction(
+            CuttingActionType.CUT,
+            Point(10, 10),
+            Point(30, 10),
+            "A:bottom",
+        ),
+        CuttingAction(
+            CuttingActionType.CUT,
+            Point(10, 10),
+            Point(30, 10),
+            "A:bottom",
+        ),
+    )
+
+    metrics = evaluate_actions(actions, panel, tool, process_model=process_model)
+
+    assert metrics.repeated_cut_segment_count == 1
+    assert metrics.repeated_cut_length == 20.0
+    assert metrics.redundant_cut_action_count == 1
+
+
+def test_partial_repeated_composite_cut_is_penalized_without_being_redundant() -> None:
+    from cnc_cutting.models import Layout, PlacedRectangle
+
+    layout = Layout(
+        panel_id="P",
+        panel_width=100,
+        panel_height=100,
+        rectangles=(
+            PlacedRectangle("A", 10, 10, 20, 10),
+            PlacedRectangle("B", 40, 10, 20, 10),
+        ),
+    )
+    process_model = build_process_model(layout)
+    panel = Panel("P", 100, 100)
+    tool = ToolConfig(trim_margin=0, tool_diameter=0, start_point=Point(10, 10))
+    actions = (
+        CuttingAction(
+            CuttingActionType.CUT,
+            Point(10, 10),
+            Point(30, 10),
+            "A:bottom",
+        ),
+        CuttingAction(
+            CuttingActionType.CUT,
+            Point(10, 10),
+            Point(60, 10),
+            covered_segment_ids=("A:bottom", "B:bottom"),
+        ),
+    )
+
+    metrics = evaluate_actions(actions, panel, tool, process_model=process_model)
+
+    assert metrics.repeated_cut_segment_count == 1
+    assert metrics.repeated_cut_length == 20.0
+    assert metrics.redundant_cut_action_count == 0
+
+
 def test_continuous_cut_keeps_tool_down_until_final_lift() -> None:
     panel = Panel("P", 100, 100)
     tool = ToolConfig(trim_margin=0, tool_diameter=6)

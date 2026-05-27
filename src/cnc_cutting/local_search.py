@@ -329,10 +329,13 @@ def evaluate_neighbor_move_metrics(
 
 def process_metric_key(
     metrics: PathMetrics,
-) -> tuple[float, float, float, int, float, float, float, float]:
+) -> tuple[float, float, int, float, int, float, int, float, float, float, float]:
     return (
         metrics.hard_penalty,
         metrics.stability_penalty,
+        metrics.repeated_cut_segment_count,
+        metrics.repeated_cut_length,
+        metrics.redundant_cut_action_count,
         metrics.machining_cost,
         metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
         metrics.travel_mode_cost,
@@ -344,9 +347,12 @@ def process_metric_key(
 
 def path_distance_metric_key(
     metrics: PathMetrics,
-) -> tuple[float, float, float, float, float, int]:
+) -> tuple[float, int, float, int, float, float, float, float, int]:
     return (
         metrics.hard_penalty,
+        metrics.repeated_cut_segment_count,
+        metrics.repeated_cut_length,
+        metrics.redundant_cut_action_count,
         metrics.machining_cost,
         metrics.travel_mode_cost,
         metrics.air_move_distance,
@@ -357,11 +363,14 @@ def path_distance_metric_key(
 
 def process_state_metric_key(
     state: IncrementalMetricsState,
-) -> tuple[float, float, int, float, float, float, float]:
+) -> tuple[float, float, int, float, int, int, float, float, float, float]:
     metrics = state.metrics
     return (
         metrics.hard_penalty,
         metrics.stability_penalty + float(len(state.unstable_part_ids)),
+        metrics.repeated_cut_segment_count,
+        metrics.repeated_cut_length,
+        metrics.redundant_cut_action_count,
         metrics.pierce_count + metrics.lift_count + metrics.safe_lift_count,
         metrics.travel_mode_cost,
         metrics.air_move_distance,

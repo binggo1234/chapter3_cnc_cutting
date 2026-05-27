@@ -30,6 +30,9 @@ DEFAULT_METRICS = (
 PROCESS_KEY_FIELDS = (
     "hard_penalty",
     "stability_penalty",
+    "cut_repeated_segment_count",
+    "cut_duplicate_segment_length",
+    "redundant_cut_action_count",
     "machining_cost",
     "tool_event_count",
     "travel_mode_cost",

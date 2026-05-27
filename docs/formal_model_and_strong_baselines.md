@@ -207,12 +207,15 @@
 
 总代价向量为：
 
-`F_proc(A) = (H(A), Phi_stab(A), C_mach(A), N_tool(A), C_travel(A), D_air(A), Theta(A), -R_cont(A))`
+`F_proc(A) = (H(A), Phi_stab(A), N_rep(A), L_rep(A), N_redun(A), C_mach(A), N_tool(A), C_travel(A), D_air(A), Theta(A), -R_cont(A))`
 
 其中：
 
 - `H(A) = H_boundary(A) + H_collision(A)`：硬约束惩罚；
 - `Phi_stab(A)`：动态稳定性惩罚；
+- `N_rep(A)`：已加工原始边段被再次切割的次数；
+- `L_rep(A)`：重复切割对应的原始边段长度；
+- `N_redun(A)`：完全不引入新覆盖边段的冗余切割动作数；
 - `C_mach(A) = C_cut(A) + C_travel(A)`：切割长度与模式加权空移代价之和；
 - `N_tool(A)`：入刀、抬刀、安全抬刀等刀具事件数；
 - `C_travel(A)`：模式加权空移代价；
@@ -226,13 +229,13 @@
 
 也可写成大权重等价形式：
 
-`min M_1 H(A) + M_2 Phi_stab(A) + M_3 C_mach(A) + M_4 N_tool(A) + C_travel(A) + w_a D_air(A) + w_theta Theta(A) - w_r R_cont(A)`
+`min M_1 H(A) + M_2 Phi_stab(A) + M_3 N_rep(A) + M_4 L_rep(A) + M_5 N_redun(A) + M_6 C_mach(A) + M_7 N_tool(A) + C_travel(A) + w_a D_air(A) + w_theta Theta(A) - w_r R_cont(A)`
 
 其中：
 
-`M_1 >> M_2 >> M_3 >> M_4 >> 1`
+`M_1 >> M_2 >> M_3 >> M_4 >> M_5 >> M_6 >> M_7 >> 1`
 
-主算法最终选择口径对应 `process_metric_key()`；beam 前缀筛选对应 `process_state_metric_key()`。刀具事件不是简单越少越好，而是在 `process_metric_key()` 中位于 `machining_cost` 之后，并由 event gate 额外限制：非保护候选若增加刀具事件，必须同时给出足够的通行代价收益和加工总代价收益，才能进入最终比较。最终主方法的完整理论表述见 `docs/formal_theory_event_gated_beam_ls.md`。
+主算法最终选择口径对应 `process_metric_key()`；beam 前缀筛选对应 `process_state_metric_key()`。重复切割位于加工总代价之前，表示算法优先避免对已加工原始边段进行再次加工；刀具事件不是简单越少越好，而是在 `process_metric_key()` 中位于 `machining_cost` 之后，并由 event gate 额外限制：非保护候选若增加刀具事件，必须同时给出足够的通行代价收益和加工总代价收益，才能进入最终比较。最终主方法的完整理论表述见 `docs/formal_theory_event_gated_beam_ls.md`。
 
 ## 6. 状态图求解形式
 

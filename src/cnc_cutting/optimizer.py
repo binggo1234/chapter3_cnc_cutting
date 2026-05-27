@@ -225,21 +225,56 @@ def _unit_priority(unit: CuttingUnit) -> tuple[int, int, float, str]:
     )
 
 
+def _dynamic_unit_priority(
+    unit: CuttingUnit,
+    covered_segment_ids: set[str],
+) -> tuple[int, float, int, int, float, str]:
+    unit_segment_ids = set(unit.covered_segment_ids)
+    new_segment_ids = unit_segment_ids - covered_segment_ids
+    repeated_segment_ids = unit_segment_ids & covered_segment_ids
+    static_priority = _unit_priority(unit)
+    return (
+        len(repeated_segment_ids),
+        sum(
+            segment.length
+            for segment in unit.segments
+            if segment.segment_id in repeated_segment_ids
+        ),
+        -len(new_segment_ids),
+        static_priority[0],
+        static_priority[2],
+        static_priority[3],
+    )
+
+
 def select_coverage_units(
     units: tuple[CuttingUnit, ...],
     allow_bridge_cut: bool = False,
 ) -> tuple[CuttingUnit, ...]:
     selected: list[CuttingUnit] = []
     covered_segment_ids: set[str] = set()
+    remaining = [
+        unit
+        for unit in units
+        if allow_bridge_cut or not unit.requires_bridge_cut
+    ]
 
-    for unit in sorted(units, key=_unit_priority):
-        if unit.requires_bridge_cut and not allow_bridge_cut:
-            continue
-        unit_segment_ids = set(unit.covered_segment_ids)
-        if not unit_segment_ids or unit_segment_ids <= covered_segment_ids:
-            continue
+    while True:
+        candidates = [
+            unit
+            for unit in remaining
+            if set(unit.covered_segment_ids) - covered_segment_ids
+        ]
+        if not candidates:
+            break
+        unit = min(
+            candidates,
+            key=lambda candidate: _dynamic_unit_priority(candidate, covered_segment_ids),
+        )
         selected.append(unit)
+        unit_segment_ids = set(unit.covered_segment_ids)
         covered_segment_ids.update(unit_segment_ids)
+        remaining.remove(unit)
 
     return tuple(selected)
 

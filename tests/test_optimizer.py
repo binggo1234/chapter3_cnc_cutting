@@ -42,6 +42,34 @@ def _single_unit(unit_id: str, start: Point, end: Point) -> CuttingUnit:
     )
 
 
+def _segment(segment_id: str, start: Point, end: Point) -> EdgeSegment:
+    part_id, role = segment_id.split(":")
+    return EdgeSegment(segment_id, part_id, EdgeRole(role), start, end)
+
+
+def _composite_unit(
+    unit_id: str,
+    segment_ids: tuple[str, ...],
+    unit_type: CuttingUnitType,
+) -> CuttingUnit:
+    segments = tuple(
+        _segment(
+            segment_id,
+            Point(index * 20.0, 0.0),
+            Point(index * 20.0 + 10.0, 0.0),
+        )
+        for index, segment_id in enumerate(segment_ids)
+    )
+    return CuttingUnit(
+        unit_id=unit_id,
+        unit_type=unit_type,
+        segments=segments,
+        start=segments[0].start,
+        end=segments[-1].end,
+        covered_segment_ids=segment_ids,
+    )
+
+
 def test_best_process_route_rejects_extra_tool_events_for_small_travel_gain() -> None:
     unit = _single_unit("u1", Point(0, 0), Point(10, 0))
     incumbent = RoutePlan(
@@ -259,6 +287,43 @@ def test_select_coverage_units_prefers_near_shared_unit_over_duplicate_edges() -
     assert any(unit.unit_type == CuttingUnitType.NEAR_SHARED_CHANNEL for unit in selected)
     assert "single:A:right" not in selected_unit_ids
     assert "single:B:left" not in selected_unit_ids
+
+
+def test_select_coverage_units_avoids_partial_overlap_when_single_edge_can_cover_gap() -> None:
+    single_a = _composite_unit(
+        "single:A:bottom",
+        ("A:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_b = _composite_unit(
+        "single:B:bottom",
+        ("B:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    single_c = _composite_unit(
+        "single:C:bottom",
+        ("C:bottom",),
+        CuttingUnitType.SINGLE_EDGE,
+    )
+    shared_ab = _composite_unit(
+        "shared:A:B",
+        ("A:bottom", "B:bottom"),
+        CuttingUnitType.SHARED_EDGE,
+    )
+    chain_bc = _composite_unit(
+        "chain:B:C",
+        ("B:bottom", "C:bottom"),
+        CuttingUnitType.COLLINEAR_CHAIN,
+    )
+
+    selected = select_coverage_units(
+        (single_a, single_b, single_c, shared_ab, chain_bc)
+    )
+    selected_ids = {unit.unit_id for unit in selected}
+
+    assert "shared:A:B" in selected_ids
+    assert "single:C:bottom" in selected_ids
+    assert "chain:B:C" not in selected_ids
 
 
 def test_greedy_unit_actions_chooses_reversed_direction_when_closer() -> None:

@@ -40,6 +40,13 @@ def add_metrics(base: PathMetrics, delta: PathMetrics) -> PathMetrics:
         collision_penalty=base.collision_penalty + delta.collision_penalty,
         boundary_penalty=base.boundary_penalty + delta.boundary_penalty,
         stability_penalty=base.stability_penalty + delta.stability_penalty,
+        repeated_cut_segment_count=(
+            base.repeated_cut_segment_count + delta.repeated_cut_segment_count
+        ),
+        repeated_cut_length=base.repeated_cut_length + delta.repeated_cut_length,
+        redundant_cut_action_count=(
+            base.redundant_cut_action_count + delta.redundant_cut_action_count
+        ),
         continuity_reward=base.continuity_reward + delta.continuity_reward,
         safe_lift_count=base.safe_lift_count + delta.safe_lift_count,
         safe_lift_distance=base.safe_lift_distance + delta.safe_lift_distance,
@@ -59,6 +66,13 @@ def subtract_metrics(total: PathMetrics, base: PathMetrics) -> PathMetrics:
         collision_penalty=total.collision_penalty - base.collision_penalty,
         boundary_penalty=total.boundary_penalty - base.boundary_penalty,
         stability_penalty=total.stability_penalty - base.stability_penalty,
+        repeated_cut_segment_count=(
+            total.repeated_cut_segment_count - base.repeated_cut_segment_count
+        ),
+        repeated_cut_length=total.repeated_cut_length - base.repeated_cut_length,
+        redundant_cut_action_count=(
+            total.redundant_cut_action_count - base.redundant_cut_action_count
+        ),
         continuity_reward=total.continuity_reward - base.continuity_reward,
         safe_lift_count=total.safe_lift_count - base.safe_lift_count,
         safe_lift_distance=total.safe_lift_distance - base.safe_lift_distance,
@@ -86,6 +100,44 @@ def action_covered_segment_ids(action: CuttingAction) -> tuple[str, ...]:
     if action.segment_id is not None:
         return (action.segment_id,)
     return ()
+
+
+def repeated_action_segment_ids(
+    action: CuttingAction,
+    state: IncrementalMetricsState,
+) -> tuple[str, ...]:
+    seen: set[str] = set()
+    repeated: list[str] = []
+    for segment_id in action_covered_segment_ids(action):
+        if segment_id in seen:
+            continue
+        seen.add(segment_id)
+        if segment_id in state.processed_segments:
+            repeated.append(segment_id)
+    return tuple(repeated)
+
+
+def repeated_action_cut_length(
+    action: CuttingAction,
+    repeated_segment_ids: tuple[str, ...],
+    process_model: CuttingProcessModel | None,
+) -> float:
+    if not repeated_segment_ids:
+        return 0.0
+    if process_model is not None and process_model.segment_lengths:
+        return sum(
+            process_model.segment_lengths.get(segment_id, 0.0)
+            for segment_id in repeated_segment_ids
+        )
+
+    covered_segment_ids = tuple(dict.fromkeys(action_covered_segment_ids(action)))
+    if not covered_segment_ids:
+        return 0.0
+    return (
+        euclidean_distance(action.start, action.end)
+        * len(repeated_segment_ids)
+        / len(covered_segment_ids)
+    )
 
 
 def action_part_ids(
@@ -335,6 +387,7 @@ def evaluate_action_delta(
 
     if action.action_type == CuttingActionType.CUT:
         covered_segment_ids = action_covered_segment_ids(action)
+        repeated_segment_ids = repeated_action_segment_ids(action, state)
         already_cut = bool(covered_segment_ids) and all(
             segment_id in state.processed_segments
             for segment_id in covered_segment_ids
@@ -347,6 +400,13 @@ def evaluate_action_delta(
             collision_penalty=collision_penalty,
             boundary_penalty=boundary_penalty,
             stability_penalty=stability_penalty,
+            repeated_cut_segment_count=len(repeated_segment_ids),
+            repeated_cut_length=repeated_action_cut_length(
+                action,
+                repeated_segment_ids,
+                process_model,
+            ),
+            redundant_cut_action_count=1 if already_cut else 0,
         )
 
     lift = 1 if state.is_tool_down else 0
@@ -502,6 +562,24 @@ def compare_metrics(
     comparisons = (
         (candidate.hard_penalty, incumbent.hard_penalty, config.hard_penalty_epsilon, False),
         (candidate.stability_penalty, incumbent.stability_penalty, config.penalty_epsilon, False),
+        (
+            candidate.repeated_cut_segment_count,
+            incumbent.repeated_cut_segment_count,
+            config.tool_event_epsilon,
+            False,
+        ),
+        (
+            candidate.repeated_cut_length,
+            incumbent.repeated_cut_length,
+            config.distance_epsilon,
+            False,
+        ),
+        (
+            candidate.redundant_cut_action_count,
+            incumbent.redundant_cut_action_count,
+            config.tool_event_epsilon,
+            False,
+        ),
         (
             candidate.pierce_count + candidate.lift_count + candidate.safe_lift_count,
             incumbent.pierce_count + incumbent.lift_count + incumbent.safe_lift_count,

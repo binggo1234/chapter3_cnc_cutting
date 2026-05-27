@@ -161,6 +161,25 @@ def test_process_metric_key_accounts_for_cutting_length_before_tool_events() -> 
     )
 
 
+def test_process_metric_key_penalizes_repeated_cut_before_machining_cost() -> None:
+    repeat_free = PathMetrics(
+        cutting_length=200,
+        travel_mode_cost=100,
+        pierce_count=4,
+        lift_count=4,
+    )
+    repeated_shorter = PathMetrics(
+        cutting_length=120,
+        travel_mode_cost=80,
+        pierce_count=2,
+        lift_count=2,
+        repeated_cut_segment_count=1,
+        repeated_cut_length=20,
+    )
+
+    assert process_metric_key(repeat_free) < process_metric_key(repeated_shorter)
+
+
 def test_exact_process_dp_matches_bruteforce_process_metric() -> None:
     units = (
         _candidate("near_start", Point(0, 0), Point(10, 0)).unit,

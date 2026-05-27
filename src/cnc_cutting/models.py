@@ -238,6 +238,9 @@ class PathMetrics:
     collision_penalty: float = 0.0
     boundary_penalty: float = 0.0
     stability_penalty: float = 0.0
+    repeated_cut_segment_count: int = 0
+    repeated_cut_length: float = 0.0
+    redundant_cut_action_count: int = 0
     continuity_reward: float = 0.0
     safe_lift_count: int = 0
     safe_lift_distance: float = 0.0
